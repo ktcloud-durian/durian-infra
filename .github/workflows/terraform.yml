@@ -1,0 +1,118 @@
+name: Terraform
+
+on:
+  pull_request:
+    paths:
+      - 'envs/**'
+      - 'modules/**'
+      - '.github/workflows/terraform.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'envs/**'
+      - 'modules/**'
+      - '.github/workflows/terraform.yml'
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write      # OIDC to AWS
+  contents: read
+  pull-requests: write # plan result comment
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  AWS_REGION: ap-northeast-2
+  TF_DIR: envs/dev
+
+jobs:
+  plan:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.10"
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: fmt (warning only)
+        continue-on-error: true
+        run: terraform fmt -check -recursive
+
+      - name: init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ env.AWS_REGION }}"
+
+      - name: validate
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform validate
+
+      - name: plan
+        id: plan
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          set +e
+          terraform plan -no-color -detailed-exitcode > plan.txt 2>&1
+          code=$?
+          echo "exitcode=$code" >> "$GITHUB_OUTPUT"
+          cat plan.txt
+          # 0 = no changes, 2 = changes, 1 = error
+          if [ "$code" -eq 1 ]; then exit 1; fi
+
+      - name: Comment plan on PR
+        if: always() && steps.plan.outcome != 'skipped'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const p = `${process.env.TF_DIR}/plan.txt`;
+            let body = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '(no plan output)';
+            if (body.length > 60000) body = body.slice(-60000);
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '### Terraform plan (`' + process.env.TF_DIR + '`)\n```\n' + body + '\n```',
+            });
+
+  apply:
+    # Safety switch: set repository variable TF_APPLY_ENABLED=true to allow apply.
+    if: github.event_name == 'push' && vars.TF_APPLY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: production   # approval gate (Required reviewers) + OIDC subject for the apply role
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.10"
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ env.AWS_REGION }}"
+
+      - name: plan
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform plan -no-color -out=tfplan
+
+      - name: apply
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform apply -no-color tfplan
