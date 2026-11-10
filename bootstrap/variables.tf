@@ -9,6 +9,12 @@ variable "github_owner" {
   default     = "Jaewoo2580"
 }
 
+variable "github_owner_id" {
+  type        = string
+  description = "Numeric GitHub account ID of the owner (GitHub now puts it in the OIDC sub claim: repo:<owner>@<owner_id>/<repo>@<repo_id>:...)"
+  default     = "69108899"
+}
+
 variable "github_repos" {
   type        = list(string)
   description = "Repositories allowed to assume the read-only plan role through OIDC"

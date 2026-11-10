@@ -5,8 +5,8 @@ locals {
   # plan role: pull requests and main branch only (no tags, no other branches)
   repo_subs = flatten([
     for r in var.github_repos : [
-      "repo:${var.github_owner}/${r}:pull_request",
-      "repo:${var.github_owner}/${r}:ref:refs/heads/main",
+      "repo:${var.github_owner}@${var.github_owner_id}/${r}@*:pull_request",
+      "repo:${var.github_owner}@${var.github_owner_id}/${r}@*:ref:refs/heads/main",
     ]
   ])
 }
@@ -112,9 +112,9 @@ data "aws_iam_policy_document" "gha_apply_trust" {
       values   = ["sts.amazonaws.com"]
     }
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_owner}/${var.infra_repo}:environment:production"]
+      values   = ["repo:${var.github_owner}@${var.github_owner_id}/${var.infra_repo}@*:environment:production"]
     }
   }
 }
