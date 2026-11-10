@@ -10,7 +10,7 @@ variable "az" {
 
 variable "instance_type" {
   type    = string
-  default = "t3.large"
+  default = "t3.micro" # free-plan accounts only allow free-tier eligible types
 }
 
 variable "admin_cidrs" {
