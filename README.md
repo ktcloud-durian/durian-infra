@@ -59,3 +59,22 @@ terraform apply
 - 필요한 Repository variables: `AWS_PLAN_ROLE_ARN`, `AWS_APPLY_ROLE_ARN`, `TF_STATE_BUCKET`, `TF_APPLY_ENABLED`
 - 필요한 Environment: `production`
 - `bootstrap/`은 로컬에서만 실행 (Actions 대상 아님). `bootstrap/terraform.tfstate`는 Git에 올리지 않으므로 백업해 둘 것
+
+## 정리(teardown) 순서 — 다른 계정으로 옮기기 전
+
+순서를 지켜야 합니다. state 버킷을 먼저 지우면 dev를 지울 수 없습니다.
+
+1. dev 환경 삭제 (Actions의 Terraform > Run workflow > confirm에 `destroy`, 또는 로컬)
+   ```powershell
+   cd envs\dev
+   terraform destroy
+   ```
+2. bootstrap 삭제 (S3 state 버킷, OIDC 제공자, Role 2개)
+   ```powershell
+   cd ..\..\bootstrap
+   terraform apply -var="force_destroy_state=true"
+   terraform destroy -var="force_destroy_state=true"
+   ```
+3. 본인 계정의 `durian` IAM 사용자/액세스 키 삭제, PC의 프로필 정리 (`aws configure` 파일의 `[durian]`)
+4. GitHub `durian-infra`의 Variables(`AWS_*`, `TF_*`)와 Environment 삭제
+5. 새 계정에서는 `github_owner`, `github_owner_id`, 저장소 이름을 맞춰 bootstrap부터 다시 실행
