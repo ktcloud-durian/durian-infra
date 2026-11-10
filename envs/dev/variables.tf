@@ -10,7 +10,7 @@ variable "az" {
 
 variable "instance_type" {
   type    = string
-  default = "t3.micro" # free-plan accounts only allow free-tier eligible types
+  default = "m7i-flex.large" # free-plan accounts only allow free-tier eligible types (2 vCPU / 8 GB)
 }
 
 variable "admin_cidrs" {
