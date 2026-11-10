@@ -13,11 +13,8 @@ locals {
 
 # ---------- Terraform remote state (S3, native locking via use_lockfile) ----------
 resource "aws_s3_bucket" "state" {
-  bucket = local.state_bucket
-
-  lifecycle {
-    prevent_destroy = true
-  }
+  bucket        = local.state_bucket
+  force_destroy = var.force_destroy_state # set true only when tearing the whole setup down
 }
 
 resource "aws_s3_bucket_versioning" "state" {

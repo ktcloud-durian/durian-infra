@@ -32,3 +32,9 @@ variable "state_bucket_name" {
   description = "Globally unique S3 bucket name for Terraform state. Empty = durian-tfstate-<account id>"
   default     = ""
 }
+
+variable "force_destroy_state" {
+  type        = bool
+  description = "Allow deleting the state bucket together with all object versions (teardown only)"
+  default     = false
+}

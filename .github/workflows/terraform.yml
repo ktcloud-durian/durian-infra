@@ -13,6 +13,13 @@ on:
       - 'modules/**'
       - '.github/workflows/terraform.yml'
 
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" to delete everything in envs/dev'
+        required: true
+        default: ''
+
 concurrency:
   group: terraform-${{ github.ref }}
   cancel-in-progress: false
@@ -116,3 +123,30 @@ jobs:
       - name: apply
         working-directory: ${{ env.TF_DIR }}
         run: terraform apply -no-color tfplan
+
+  destroy:
+    # Manual only. Needs TF_APPLY_ENABLED=true, input "destroy", and production Environment approval.
+    if: github.event_name == 'workflow_dispatch' && inputs.confirm == 'destroy' && vars.TF_APPLY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.10"
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ env.AWS_REGION }}"
+
+      - name: destroy
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform destroy -no-color -auto-approve
