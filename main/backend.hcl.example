@@ -1,0 +1,2 @@
+bucket = "durian-tfstate-<계정ID>"
+region = "ap-northeast-2"

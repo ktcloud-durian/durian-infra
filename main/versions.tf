@@ -6,9 +6,9 @@ terraform {
       version = "~> 6.0"
     }
   }
-  # bucket/region are passed with: terraform init -backend-config=backend.hcl
+  # bucket/region: terraform init "-backend-config=backend.hcl"
   backend "s3" {
-    key          = "dev/terraform.tfstate"
+    key          = "main/terraform.tfstate"
     use_lockfile = true
     encrypt      = true
   }
@@ -19,7 +19,6 @@ provider "aws" {
   default_tags {
     tags = {
       Project   = "durian"
-      Env       = "dev"
       ManagedBy = "terraform"
     }
   }

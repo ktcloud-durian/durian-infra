@@ -1,0 +1,8 @@
+# cp terraform.tfvars.example terraform.tfvars  (Git에 올라가지 않음)
+instances = {
+  k3s = { role = "k3s", instance_type = "m7i-flex.large" }
+  # runner = { role = "runner", instance_type = "c7i-flex.large" }
+}
+
+# S3 (정해지면 용도 이름만 추가)
+# buckets = ["upload", "backup"]
