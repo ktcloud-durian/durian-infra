@@ -5,19 +5,16 @@ locals {
   # plan role: pull requests and main branch only (no tags, no other branches)
   repo_subs = flatten([
     for r in var.github_repos : [
-      "repo:${var.github_owner}/${r}:pull_request",
-      "repo:${var.github_owner}/${r}:ref:refs/heads/main",
+      "repo:${var.github_owner}@${var.github_owner_id}/${r}@*:pull_request",
+      "repo:${var.github_owner}@${var.github_owner_id}/${r}@*:ref:refs/heads/main",
     ]
   ])
 }
 
 # ---------- Terraform remote state (S3, native locking via use_lockfile) ----------
 resource "aws_s3_bucket" "state" {
-  bucket = local.state_bucket
-
-  lifecycle {
-    prevent_destroy = true
-  }
+  bucket        = local.state_bucket
+  force_destroy = var.force_destroy_state # set true only when tearing the whole setup down
 }
 
 resource "aws_s3_bucket_versioning" "state" {
@@ -112,9 +109,9 @@ data "aws_iam_policy_document" "gha_apply_trust" {
       values   = ["sts.amazonaws.com"]
     }
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_owner}/${var.infra_repo}:environment:production"]
+      values   = ["repo:${var.github_owner}@${var.github_owner_id}/${var.infra_repo}@*:environment:production"]
     }
   }
 }
