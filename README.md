@@ -78,3 +78,5 @@ terraform apply
 3. 본인 계정의 `durian` IAM 사용자/액세스 키 삭제, PC의 프로필 정리 (`aws configure` 파일의 `[durian]`)
 4. GitHub `durian-infra`의 Variables(`AWS_*`, `TF_*`)와 Environment 삭제
 5. 새 계정에서는 `github_owner`, `github_owner_id`, 저장소 이름을 맞춰 bootstrap부터 다시 실행
+
+<!-- plan test -->
