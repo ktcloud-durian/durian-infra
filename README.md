@@ -2,9 +2,7 @@
 
 ```
 bootstrap/        1회만 실행. state용 S3 버킷 + GitHub OIDC Role (로컬 state 사용)
-modules/network   VPC, public subnet
-modules/k3s-node  Ubuntu 24.04 EC2 + k3s (SSM 접속, SSH 포트 없음)
-envs/dev          개발 환경 (state는 S3)
+main            팀원이 수정하는 곳 (vpc.tf / sg.tf / ec2.tf, instances 맵)
 ```
 
 ## 사전 준비 (본인 PC)

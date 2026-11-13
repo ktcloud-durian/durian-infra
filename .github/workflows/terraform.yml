@@ -3,14 +3,12 @@ name: Terraform
 on:
   pull_request:
     paths:
-      - 'envs/**'
-      - 'modules/**'
+      - 'main/**'
       - '.github/workflows/terraform.yml'
   push:
     branches: [main]
     paths:
-      - 'envs/**'
-      - 'modules/**'
+      - 'main/**'
       - '.github/workflows/terraform.yml'
 
   workflow_dispatch:
@@ -33,7 +31,7 @@ env:
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
   AWS_REGION: ap-northeast-2
-  TF_DIR: envs/dev
+  TF_DIR: main
 
 jobs:
   plan:
