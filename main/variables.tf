@@ -19,7 +19,7 @@ variable "instances" {
 
 variable "subnet_id" {
   type        = string
-  description = "비워두면 기본 VPC의 첫 서브넷 자동 선택. 인스턴스 타입이 AZ에서 안 되면 직접 지정."
+  description = "비워두면 durian VPC의 첫 public 서브넷. 인스턴스 타입이 AZ에서 안 되면 직접 지정."
   default     = null
 }
 
@@ -39,4 +39,20 @@ variable "buckets" {
   type        = set(string)
   description = "만들 S3 버킷의 용도 이름 목록. 비어 있으면 아무것도 만들지 않는다."
   default     = []
+}
+
+variable "name" {
+  type    = string
+  default = "durian"
+}
+
+variable "vpc_cidr" {
+  type        = string
+  description = "온프레미스(OpenStack) 대역과 겹치지 않아야 함"
+  default     = "10.20.0.0/16"
+}
+
+variable "azs" {
+  type    = list(string)
+  default = ["ap-northeast-2a", "ap-northeast-2c"]
 }
