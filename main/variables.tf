@@ -11,6 +11,7 @@ variable "instances" {
     role          = string
     instance_type = string
     volume_gb     = optional(number, 30)
+    ami_id        = optional(string) # 지정하면 이 AMI로 부팅하고 user_data는 실행하지 않음
   }))
   default = {
     k3s = { role = "k3s", instance_type = "m7i-flex.large" }
