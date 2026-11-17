@@ -57,7 +57,7 @@ locals {
 resource "aws_instance" "this" {
   for_each = var.instances
 
-  ami                    = data.aws_ssm_parameter.ubuntu.value
+  ami                    = coalesce(each.value.ami_id, data.aws_ssm_parameter.ubuntu.value)
   instance_type          = each.value.instance_type
   subnet_id              = local.subnet_id
   vpc_security_group_ids = [aws_security_group.node.id]
@@ -73,7 +73,7 @@ resource "aws_instance" "this" {
     encrypted   = true
   }
 
-  user_data                   = local.user_data[each.value.role]
+  user_data                   = each.value.ami_id == null ? local.user_data[each.value.role] : null
   user_data_replace_on_change = true
 
   tags = { Name = "durian-${each.key}", Role = each.value.role }
