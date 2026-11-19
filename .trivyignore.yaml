@@ -1,0 +1,19 @@
+# trivy 예외 목록 (보안 기준서 7.2 예외 대장). 파일 경로까지 지정해서 다른 곳의 같은 문제는 계속 잡음
+# 새 예외는 PR로만 추가. statement에 EX 번호와 이유, expired_at이 지나면 다시 걸림
+misconfigurations:
+  - id: AVD-AWS-0104
+    paths: ["main/sg.tf"]
+    statement: "EX-03 노드 egress 전체 허용 (패키지·이미지·k3s 설치). 목적지 좁히기는 팀 결정 후"
+    expired_at: 2026-12-05
+  - id: AVD-AWS-0132
+    paths: ["bootstrap/main.tf"]
+    statement: "EX-04 state 버킷 SSE-S3 (KMS 고객 관리 키는 월 비용). 발표 후 정리"
+    expired_at: 2026-12-05
+  - id: AVD-AWS-0164
+    paths: ["main/vpc.tf"]
+    statement: "EX-05 공개 서브넷 공인 IP 자동 부여. NAT 인스턴스 연결 후 k3s를 private-app으로 옮기고 false로 변경"
+    expired_at: 2026-11-30
+  - id: AVD-AWS-0178
+    paths: ["main/vpc.tf"]
+    statement: "임시: VPC Flow Logs는 보안 기본 설정 PR(flowlogs.tf)에서 추가. 병합되면 이 항목 삭제"
+    expired_at: 2026-11-27
