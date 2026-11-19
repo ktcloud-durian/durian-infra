@@ -9,3 +9,4 @@ backend.hcl
 .terraform.lock.hcl.bak
 *.pem
 *.key
+.build/
