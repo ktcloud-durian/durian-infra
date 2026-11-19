@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+# DURIAN K3s ${role} bootstrap
+# Stage scripts only. Do not install K3s yet.
+
+DEST=/opt/durian/bootstrap
+install -d -m 0700 "$DEST"
+
+printf '%s' '${role_script_gz}' |
+  base64 -d | gzip -d > "$DEST/install-k3s-ha-${role}.sh"
+
+printf '%s' '${ecr_setup_gz}' |
+  base64 -d | gzip -d > "$DEST/setup-ecr-provider.sh"
+
+printf '%s' '${ecr_config_gz}' |
+  base64 -d | gzip -d > "$DEST/ecr-credential-provider-config.yaml"
+
+printf '%s\n' '${k3s_version}' > "$DEST/k3s-version"
+
+printf '%s' '${ecr_fetch_gz}' |
+  base64 -d | gzip -d > "$DEST/fetch-ecr-provider.sh"
+
+printf '%s\n' '${ecr_provider_sha256}' > "$DEST/ecr-provider.sha256"
+printf '%s\n' '${ecr_s3_bucket}' > "$DEST/ecr-s3-bucket"
+printf '%s\n' '${ecr_s3_key}' > "$DEST/ecr-s3-key"
+
+chmod 0600 "$DEST/ecr-provider.sha256" "$DEST/ecr-s3-bucket" "$DEST/ecr-s3-key"
+printf '%s' '${traefik_config_gz}' |
+  base64 -d | gzip -d > "$DEST/traefik-config.yaml"
+chmod 0700 "$DEST"/*.sh
+chmod 0600 "$DEST"/*.yaml "$DEST/k3s-version"
+
+echo "DURIAN ${role} bootstrap files staged."
+printf '%s' '${bootstrap_runner_gz}' |
+  base64 -d | gzip -d > "$DEST/run-k3s-bootstrap.sh"
+
+chmod 0700 "$DEST/run-k3s-bootstrap.sh"
+
+if [[ '${bootstrap_execute}' == 'true' ]]; then
+  bash "$DEST/run-k3s-bootstrap.sh" --install '${role}'
+else
+  echo "K3s installation disabled until approval."
+fi

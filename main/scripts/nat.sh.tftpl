@@ -1,0 +1,28 @@
+﻿#!/bin/bash
+set -euxo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+# Enable IPv4 forwarding persistently
+echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/99-durian-nat.conf
+sysctl --system
+
+# Install firewall persistence
+apt-get update
+apt-get install -y iptables iptables-persistent
+
+# Detect internet-facing network interface
+WAN_IF=$(ip -o -4 route show default | awk '{print $5; exit}')
+test -n "$WAN_IF"
+
+# Restrict forwarded traffic to assigned private subnets
+iptables -P FORWARD DROP
+
+for NET in "${app_cidr}" "${mon_cidr}"; do
+  iptables -A FORWARD -s "$NET" -o "$WAN_IF" -j ACCEPT
+  iptables -t nat -A POSTROUTING -s "$NET" -o "$WAN_IF" -j MASQUERADE
+done
+
+iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# Survive instance reboot
+netfilter-persistent save

@@ -1,0 +1,14 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    # K3s v1.34.9+ ships Traefik chart v40: use service.spec.type.
+    service:
+      spec:
+        type: NodePort
+    ports:
+      web:
+        nodePort: 30080
