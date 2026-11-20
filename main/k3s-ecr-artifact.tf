@@ -11,7 +11,7 @@ variable "aws_k3s_ecr_s3_key" {
 }
 
 resource "aws_iam_role_policy" "k3s_ecr_artifact_read" {
-  for_each = var.aws_k3s_enabled && var.aws_k3s_ecr_s3_bucket != "" ? local.k3s_roles : toset([])
+  for_each = var.aws_k3s_image_registry == "ecr" && var.aws_k3s_enabled && var.aws_k3s_ecr_s3_bucket != "" ? local.k3s_roles : toset([])
 
   name = "durian-k3s-ecr-artifact-read"
   role = aws_iam_role.k3s[each.key].id

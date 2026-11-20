@@ -48,3 +48,13 @@ variable "aws_k3s_worker_instance_type" {
   type        = string
   default     = "t3.small"
 }
+
+variable "aws_k3s_image_registry" {
+  description = "Application image source: ghcr (team release workflow) or ecr"
+  type        = string
+  default     = "ghcr"
+  validation {
+    condition     = contains(["ghcr", "ecr"], var.aws_k3s_image_registry)
+    error_message = "aws_k3s_image_registry must be ghcr or ecr."
+  }
+}

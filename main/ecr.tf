@@ -1,5 +1,6 @@
 # DURIAN application ECR repository
 resource "aws_ecr_repository" "app" {
+  count                = var.aws_k3s_image_registry == "ecr" ? 1 : 0
   name                 = "durian-app"
   image_tag_mutability = "IMMUTABLE"
   force_delete         = false
@@ -19,8 +20,9 @@ resource "aws_ecr_repository" "app" {
 
 # K3s Worker EC2: ECR 이미지 다운로드 권한
 resource "aws_iam_role_policy" "worker_ecr_pull" {
-  name = "durian-worker-ecr-pull"
-  role = aws_iam_role.k3s["worker"].id
+  count = var.aws_k3s_image_registry == "ecr" ? 1 : 0
+  name  = "durian-worker-ecr-pull"
+  role  = aws_iam_role.k3s["worker"].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -37,20 +39,21 @@ resource "aws_iam_role_policy" "worker_ecr_pull" {
           "ecr:GetDownloadUrlForLayer",
           "ecr:BatchCheckLayerAvailability"
         ]
-        Resource = aws_ecr_repository.app.arn
+        Resource = aws_ecr_repository.app[0].arn
       }
     ]
   })
 }
 
 output "ecr_app_url" {
-  value = aws_ecr_repository.app.repository_url
+  value = var.aws_k3s_image_registry == "ecr" ? aws_ecr_repository.app[0].repository_url : null
 }
 
 # Untagged images only: expire after 30 days
 # Tagged release images are preserved for rollback.
 resource "aws_ecr_lifecycle_policy" "app" {
-  repository = aws_ecr_repository.app.name
+  count      = var.aws_k3s_image_registry == "ecr" ? 1 : 0
+  repository = aws_ecr_repository.app[0].name
 
   policy = jsonencode({
     rules = [

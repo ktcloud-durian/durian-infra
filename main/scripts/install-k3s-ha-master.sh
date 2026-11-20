@@ -76,6 +76,8 @@ NODE_NAME="durian-master-${INSTANCE_ID}"
 echo "Starting K3s HA master: ${NODE_NAME}"
 echo "Secrets are not printed."
 
+ECR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "${DURIAN_IMAGE_REGISTRY:-ecr}" == "ecr" ]]; then
 # Install ECR credential provider before K3s starts.
 # Fetch approved ECR artifact before K3s installation.
 if [[ -z "${ECR_PROVIDER_BIN:-}" ]]; then
@@ -110,6 +112,7 @@ printf '%s  %s\n' "$ECR_PROVIDER_SHA256" "$ECR_PROVIDER_BIN" |
 bash "$ECR_DIR/setup-ecr-provider.sh" \
   "$ECR_PROVIDER_BIN" \
   "$ECR_DIR/ecr-credential-provider-config.yaml"
+fi
 # Stage bundled Traefik NodePort config before K3s server starts.
 install -d -m 0755 /var/lib/rancher/k3s/server/manifests
 install -m 0644 "$ECR_DIR/traefik-config.yaml" /var/lib/rancher/k3s/server/manifests/traefik-config.yaml

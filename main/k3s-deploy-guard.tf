@@ -22,8 +22,13 @@ resource "terraform_data" "aws_k3s_guard" {
         var.aws_k3s_datastore == "external" &&
         var.aws_k3s_bootstrap_approved &&
         trimspace(var.aws_k3s_version) != "" &&
-        trimspace(var.aws_k3s_ecr_s3_bucket) != "" &&
-        trimspace(var.aws_k3s_ecr_s3_key) != "" &&
+        (
+          var.aws_k3s_image_registry == "ghcr" ||
+          (
+            trimspace(var.aws_k3s_ecr_s3_bucket) != "" &&
+            trimspace(var.aws_k3s_ecr_s3_key) != ""
+          )
+        ) &&
         floor(length(trim(base64encode(local.k3s_master_user_data), "=")) * 3 / 4) <= 16384 &&
         floor(length(trim(base64encode(local.k3s_worker_user_data), "=")) * 3 / 4) <= 16384
       )

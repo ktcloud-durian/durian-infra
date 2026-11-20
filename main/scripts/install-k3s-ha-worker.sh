@@ -97,6 +97,8 @@ echo "AWS AZ: ${AZ}"
 echo "Server: ${REGISTRATION}:6443"
 echo "Agent Token is not printed."
 
+ECR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "${DURIAN_IMAGE_REGISTRY:-ecr}" == "ecr" ]]; then
 # Install ECR credential provider before K3s starts.
 # Fetch approved ECR artifact before K3s installation.
 if [[ -z "${ECR_PROVIDER_BIN:-}" ]]; then
@@ -131,6 +133,7 @@ printf '%s  %s\n' "$ECR_PROVIDER_SHA256" "$ECR_PROVIDER_BIN" |
 bash "$ECR_DIR/setup-ecr-provider.sh" \
   "$ECR_PROVIDER_BIN" \
   "$ECR_DIR/ecr-credential-provider-config.yaml"
+fi
 INSTALLER=$(mktemp)
 trap 'rm -f "$INSTALLER"' EXIT
 

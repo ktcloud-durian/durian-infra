@@ -1,5 +1,8 @@
 locals {
   k3s_userdata_common = {
+    image_registry      = var.aws_k3s_image_registry
+    team_prep_gz        = base64gzip(file("${path.module}/scripts/team-node-prep.sh"))
+    argocd_installer_gz = base64gzip(file("${path.module}/scripts/install-argocd-gitops.sh"))
     traefik_config_gz   = base64gzip(file("${path.module}/scripts/traefik-config.yaml"))
     bootstrap_runner_gz = base64gzip(file("${path.module}/scripts/run-k3s-bootstrap.sh"))
     bootstrap_execute   = var.aws_k3s_bootstrap_approved
