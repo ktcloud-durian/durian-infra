@@ -39,11 +39,7 @@ resource "aws_iam_role_policy" "master_parameters" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["ssm:PutParameter"]
-        Resource = "${local.parameter_arn_prefix}/k3s/*"
-      },
+
       {
         Effect   = "Allow"
         Action   = ["ssm:GetParameter"]
