@@ -1,6 +1,12 @@
 # DURIAN NAT EC2 - one instance per AZ
 # Existing VPC and subnet CIDRs are preserved.
 
+variable "nat_enabled" {
+  description = "Enable NAT EC2 after team approval"
+  type        = bool
+  default     = false
+}
+
 variable "nat_ami_id" {
   type    = string
   default = "ami-0e0eaae1fc96ade32"
@@ -12,7 +18,7 @@ variable "nat_instance_type" {
 }
 
 resource "aws_instance" "nat" {
-  for_each = local.az_keys
+  for_each = var.nat_enabled ? local.az_keys : {}
 
   ami                         = var.nat_ami_id
   instance_type               = var.nat_instance_type
@@ -52,7 +58,7 @@ resource "aws_instance" "nat" {
 
 # NAT receives forwarding traffic from private app subnets.
 resource "aws_vpc_security_group_ingress_rule" "nat_app" {
-  for_each = local.az_keys
+  for_each = var.nat_enabled ? local.az_keys : {}
 
   security_group_id = aws_security_group.role["nat"].id
   cidr_ipv4         = aws_subnet.private_app[each.key].cidr_block
@@ -63,7 +69,7 @@ resource "aws_vpc_security_group_ingress_rule" "nat_app" {
 
 # NAT receives forwarding traffic from private monitor subnets.
 resource "aws_vpc_security_group_ingress_rule" "nat_mon" {
-  for_each = local.az_keys
+  for_each = var.nat_enabled ? local.az_keys : {}
 
   security_group_id = aws_security_group.role["nat"].id
   cidr_ipv4         = aws_subnet.private_mon[each.key].cidr_block
@@ -75,6 +81,7 @@ resource "aws_vpc_security_group_ingress_rule" "nat_mon" {
 # NAT must forward traffic to internet destinations.
 # Security review required before deployment.
 resource "aws_vpc_security_group_egress_rule" "nat_internet" {
+  count             = var.nat_enabled ? 1 : 0
   security_group_id = aws_security_group.role["nat"].id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
@@ -84,7 +91,7 @@ resource "aws_vpc_security_group_egress_rule" "nat_internet" {
 
 # Existing private route tables point to NAT ENIs.
 resource "aws_route" "private_nat" {
-  for_each = local.az_keys
+  for_each = var.nat_enabled ? local.az_keys : {}
 
   route_table_id         = aws_route_table.private[each.key].id
   destination_cidr_block = "0.0.0.0/0"
