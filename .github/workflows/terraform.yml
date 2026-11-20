@@ -10,6 +10,9 @@ on:
     paths:
       - 'main/**'
       - '.github/workflows/terraform.yml'
+      - '.github/workflows/security-scan.yml'
+      - '.tflint.hcl'
+      - '.trivyignore.yaml'
 
   workflow_dispatch:
     inputs:
