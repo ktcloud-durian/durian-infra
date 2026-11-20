@@ -18,3 +18,13 @@ resource "aws_vpc_security_group_egress_rule" "web_alb_to_worker" {
   to_port                      = 30080
   description                  = "ALB to K3s worker only"
 }
+
+resource "aws_vpc_security_group_ingress_rule" "web_alb_http_redirect" {
+  count             = var.aws_alb_enabled ? 1 : 0
+  security_group_id = aws_security_group.role["alb"].id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "tcp"
+  from_port         = 80
+  to_port           = 80
+  description       = "Public HTTP for HTTPS redirect only"
+}

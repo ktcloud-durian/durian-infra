@@ -74,3 +74,20 @@ output "aws_web_alb_dns" {
   description = "Created only after aws_alb_enabled is approved"
   value       = var.aws_alb_enabled ? aws_lb.web[0].dns_name : null
 }
+
+resource "aws_lb_listener" "web_http_redirect" {
+  count             = var.aws_alb_enabled ? 1 : 0
+  load_balancer_arn = aws_lb.web[0].arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
