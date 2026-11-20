@@ -56,37 +56,59 @@ resource "aws_instance" "nat" {
   }
 }
 
-# NAT receives forwarding traffic from private app subnets.
+# NAT traffic restricted to approved service ports.
+locals {
+  nat_allowed_ports = {
+    http             = { protocol = "tcp", port = 80 }
+    https            = { protocol = "tcp", port = 443 }
+    tailscale_direct = { protocol = "udp", port = 41641 }
+    tailscale_stun   = { protocol = "udp", port = 3478 }
+  }
+
+  nat_allowed_ingress = var.nat_enabled ? {
+    for item in setproduct(keys(local.az_keys), keys(local.nat_allowed_ports)) :
+    "${item[0]}-${item[1]}" => {
+      az       = item[0]
+      protocol = local.nat_allowed_ports[item[1]].protocol
+      port     = local.nat_allowed_ports[item[1]].port
+    }
+  } : {}
+}
+
 resource "aws_vpc_security_group_ingress_rule" "nat_app" {
-  for_each = var.nat_enabled ? local.az_keys : {}
+  for_each = local.nat_allowed_ingress
 
   security_group_id = aws_security_group.role["nat"].id
-  cidr_ipv4         = aws_subnet.private_app[each.key].cidr_block
-  ip_protocol       = "-1"
+  cidr_ipv4         = aws_subnet.private_app[each.value.az].cidr_block
+  ip_protocol       = each.value.protocol
+  from_port         = each.value.port
+  to_port           = each.value.port
 
-  description = "Forward traffic from private app"
+  description = "Private app ${each.value.protocol} ${each.value.port} to NAT"
 }
 
-# NAT receives forwarding traffic from private monitor subnets.
 resource "aws_vpc_security_group_ingress_rule" "nat_mon" {
-  for_each = var.nat_enabled ? local.az_keys : {}
+  for_each = local.nat_allowed_ingress
 
   security_group_id = aws_security_group.role["nat"].id
-  cidr_ipv4         = aws_subnet.private_mon[each.key].cidr_block
-  ip_protocol       = "-1"
+  cidr_ipv4         = aws_subnet.private_mon[each.value.az].cidr_block
+  ip_protocol       = each.value.protocol
+  from_port         = each.value.port
+  to_port           = each.value.port
 
-  description = "Forward traffic from private monitor"
+  description = "Private monitor ${each.value.protocol} ${each.value.port} to NAT"
 }
 
-# NAT must forward traffic to internet destinations.
-# Security review required before deployment.
 resource "aws_vpc_security_group_egress_rule" "nat_internet" {
-  count             = var.nat_enabled ? 1 : 0
+  for_each = var.nat_enabled ? local.nat_allowed_ports : {}
+
   security_group_id = aws_security_group.role["nat"].id
   cidr_ipv4         = "0.0.0.0/0"
-  ip_protocol       = "-1"
+  ip_protocol       = each.value.protocol
+  from_port         = each.value.port
+  to_port           = each.value.port
 
-  description = "NAT internet forwarding"
+  description = "NAT outbound ${each.value.protocol} ${each.value.port}"
 }
 
 # Existing private route tables point to NAT ENIs.

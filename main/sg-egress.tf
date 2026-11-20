@@ -74,3 +74,22 @@ resource "aws_vpc_security_group_egress_rule" "mgmt_node_exporter" {
 
   description = "Monitor to K3s Node Exporter"
 }
+
+# Tailscale direct connection and STUN outbound.
+# Applied to common K3s nodes and monitoring SG.
+resource "aws_vpc_security_group_egress_rule" "tailscale_udp" {
+  for_each = {
+    for pair in setproduct(["node", "mgmt"], [3478, 41641]) :
+    "${pair[0]}-${pair[1]}" => {
+      role = pair[0]
+      port = pair[1]
+    }
+  }
+
+  security_group_id = aws_security_group.role[each.value.role].id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "udp"
+  from_port         = each.value.port
+  to_port           = each.value.port
+  description       = "Tailscale UDP ${each.value.port} outbound"
+}

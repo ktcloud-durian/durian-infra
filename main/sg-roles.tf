@@ -32,6 +32,7 @@ resource "aws_vpc_security_group_ingress_rule" "alb_https" {
   ip_protocol       = "tcp"
   from_port         = 443
   to_port           = 443
+  description       = "Public HTTPS access to ALB"
 }
 
 # Worker to K3s Master API
@@ -41,6 +42,7 @@ resource "aws_vpc_security_group_ingress_rule" "master_api" {
   ip_protocol                  = "tcp"
   from_port                    = 6443
   to_port                      = 6443
+  description                  = "Worker to K3s Master API"
 }
 
 # K3s Flannel VXLAN between nodes
@@ -50,6 +52,7 @@ resource "aws_vpc_security_group_ingress_rule" "node_flannel" {
   ip_protocol                  = "udp"
   from_port                    = 8472
   to_port                      = 8472
+  description                  = "K3s Flannel VXLAN between nodes"
 }
 
 # Kubelet communication between nodes
@@ -59,6 +62,7 @@ resource "aws_vpc_security_group_ingress_rule" "node_kubelet" {
   ip_protocol                  = "tcp"
   from_port                    = 10250
   to_port                      = 10250
+  description                  = "K3s Kubelet between nodes"
 }
 
 # Prometheus Node Exporter access from Monitor
@@ -68,4 +72,5 @@ resource "aws_vpc_security_group_ingress_rule" "node_exporter" {
   ip_protocol                  = "tcp"
   from_port                    = 9100
   to_port                      = 9100
+  description                  = "Monitoring to K3s Node Exporter"
 }
