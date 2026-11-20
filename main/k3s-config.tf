@@ -11,12 +11,29 @@ variable "aws_k3s_master_count" {
   description = "Planned K3s master count"
   type        = number
   default     = 2
+
+  validation {
+    condition = (
+      var.aws_k3s_master_count >= 1 &&
+      var.aws_k3s_master_count <= 2 &&
+      floor(var.aws_k3s_master_count) == var.aws_k3s_master_count
+    )
+    error_message = "Master count must be 1 or 2."
+  }
 }
 
 variable "aws_k3s_worker_desired" {
   description = "Planned ASG worker count"
   type        = number
   default     = 2
+
+  validation {
+    condition = (
+      var.aws_k3s_worker_desired >= 1 &&
+      floor(var.aws_k3s_worker_desired) == var.aws_k3s_worker_desired
+    )
+    error_message = "Worker count must be a positive integer."
+  }
 }
 
 variable "aws_k3s_datastore" {
