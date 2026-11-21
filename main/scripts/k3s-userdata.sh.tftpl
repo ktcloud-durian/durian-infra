@@ -25,6 +25,7 @@ export CLUSTER_CIDR='${pod_cidr}'
 export SERVICE_CIDR='${service_cidr}'
 export SECRETS_ENCRYPTION=true
 export ENABLE_KSM=false
+export TS_SSH=false
 
 # Use unique names within the tailnet as well as Kubernetes.
 META_TOKEN=$(curl -fsS --max-time 5 -X PUT \

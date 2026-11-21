@@ -47,7 +47,9 @@ tailscale_setup() {
   # tskey-client-*(OAuth)만 ?ephemeral/preauthorized 옵션을 붙인다. tskey-auth-*는 키 자체에 옵션이 들어 있음
   [[ "$key" == tskey-client-* ]] && key="${key}?ephemeral=${TS_EPHEMERAL:-$([[ $ROLE == worker ]] && echo true || echo false)}&preauthorized=true"
   local args=("--authkey=${key}"
-              "--advertise-tags=${TS_TAG:-tag:durian-${ROLE}}" --ssh "--hostname=${NODE_NAME}")
+              "--advertise-tags=${TS_TAG:-tag:durian-${ROLE}}" "--hostname=${NODE_NAME}")
+  # NET-04: AWS access via SSM. Tailscale SSH disabled by default.
+  [[ "${TS_SSH:-false}" == "true" ]] && args+=(--ssh)
   if [[ -n "${TS_ROUTES:-}" ]]; then                  # 서브넷 라우터 (예: 10.20.0.0/16)
     echo 'net.ipv4.ip_forward=1' > /etc/sysctl.d/99-tailscale.conf && sysctl -p /etc/sysctl.d/99-tailscale.conf
     args+=("--advertise-routes=${TS_ROUTES}")
