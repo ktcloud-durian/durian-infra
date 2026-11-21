@@ -74,8 +74,19 @@ jobs:
           terraform plan -no-color -detailed-exitcode > plan.txt 2>&1
           code=$?
           echo "exitcode=$code" >> "$GITHUB_OUTPUT"
-          cat plan.txt
+          # 공개 저장소: 계정 ID/리소스 ID 노출 방지를 위해 전체 plan은 로그/댓글에 남기지 않고 요약 한 줄만 남김
           # 0 = no changes, 2 = changes, 1 = error
+          if [ "$code" -eq 0 ]; then
+            summary="No changes."
+          elif [ "$code" -eq 2 ]; then
+            summary=$(grep -E '^Plan:' plan.txt | tail -1)
+            summary="${summary:-Changes detected (no resource summary)}"
+          else
+            summary="Plan failed (exit 1). 공개 저장소라 상세 로그는 출력하지 않음. 로컬에서 terraform plan 으로 확인"
+          fi
+          echo "$summary"
+          echo "$summary" > plan-summary.txt
+          rm -f plan.txt
           if [ "$code" -eq 1 ]; then exit 1; fi
 
       - name: Comment plan on PR
@@ -84,14 +95,13 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const p = `${process.env.TF_DIR}/plan.txt`;
-            let body = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '(no plan output)';
-            if (body.length > 60000) body = body.slice(-60000);
+            const p = `${process.env.TF_DIR}/plan-summary.txt`;
+            const body = fs.existsSync(p) ? fs.readFileSync(p, 'utf8').trim() : '(no plan output)';
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: '### Terraform plan (`' + process.env.TF_DIR + '`)\n```\n' + body + '\n```',
+              body: '### Terraform plan (`' + process.env.TF_DIR + '`)\n' + body,
             });
 
   apply:

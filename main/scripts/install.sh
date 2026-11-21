@@ -47,7 +47,9 @@ tailscale_setup() {
   # tskey-client-*(OAuth)만 ?ephemeral/preauthorized 옵션을 붙인다. tskey-auth-*는 키 자체에 옵션이 들어 있음
   [[ "$key" == tskey-client-* ]] && key="${key}?ephemeral=${TS_EPHEMERAL:-$([[ $ROLE == worker ]] && echo true || echo false)}&preauthorized=true"
   local args=("--authkey=${key}"
-              "--advertise-tags=${TS_TAG:-tag:durian-${ROLE}}" --ssh "--hostname=${NODE_NAME}")
+              "--advertise-tags=${TS_TAG:-tag:durian-${ROLE}}" "--hostname=${NODE_NAME}")
+  # Tailscale SSH는 기본 끔 (NET-04: AWS 접속은 SSM만). 켜면 ACL ssh 규칙을 먼저 정해야 함: TS_SSH=true
+  [[ "${TS_SSH:-false}" == "true" ]] && args+=(--ssh)
   if [[ -n "${TS_ROUTES:-}" ]]; then                  # 서브넷 라우터 (예: 10.20.0.0/16)
     echo 'net.ipv4.ip_forward=1' > /etc/sysctl.d/99-tailscale.conf && sysctl -p /etc/sysctl.d/99-tailscale.conf
     args+=("--advertise-routes=${TS_ROUTES}")
@@ -99,7 +101,7 @@ EOF
     [[ -n "${MASTER_TLS_SAN:-}" ]] && ex+=" --tls-san ${MASTER_TLS_SAN}"
     [[ -n "${CLUSTER_CIDR:-}" ]] && ex+=" --cluster-cidr ${CLUSTER_CIDR}"   # 예: 10.52.0.0/16 (허용 포트 목록 2번)
     [[ -n "${SERVICE_CIDR:-}" ]] && ex+=" --service-cidr ${SERVICE_CIDR}"   # 예: 10.53.0.0/16
-    [[ "${SECRETS_ENCRYPTION:-false}" == "true" ]] && ex+=" --secrets-encryption"   # SRV-04
+    [[ "${SECRETS_ENCRYPTION:-true}" == "true" ]] && ex+=" --secrets-encryption"   # SRV-04 (기본 켬, 끄려면 SECRETS_ENCRYPTION=false)
     [[ "${MASTER_TAINT:-false}" == "true" ]] && ex+=" --node-taint node-role.kubernetes.io/control-plane=true:NoSchedule"
     curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION:-}" \
       INSTALL_K3S_CHANNEL="${K3S_CHANNEL:-stable}" INSTALL_K3S_EXEC="$ex" sh -
@@ -176,6 +178,8 @@ EOF
 worker() {
   local ip token az n=0
   # master가 SSM에 token/master-ip를 쓸 때까지 최대 약 15분 재시도 (MASTER_IP/K3S_TOKEN 직접 지정 시 즉시 사용)
+  # 주의: K3S_TOKEN을 직접 지정할 때는 SSM이나 숨김 입력(read -rs)으로만 넘길 것.
+  #       Terraform user_data에는 절대 쓰지 말 것 (EC2 콘솔 user_data에 평문으로 보임, SEC-01)
   ip="${MASTER_IP:-}"; token="${K3S_TOKEN:-}"
   until [[ -n "$ip" && -n "$token" ]]; do
     [[ -z "${MASTER_IP:-}" ]] && ip=$(ssm_get "$K3S_SSM/master-ip")
