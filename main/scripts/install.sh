@@ -26,7 +26,7 @@ imds() { # EC2 메타데이터(IMDSv2)
 ssm_get() { aws ssm get-parameter --name "$1" --with-decryption --query Parameter.Value --output text 2>/dev/null || true; }
 ssm_put() { # ssm_put 이름 값 [String|SecureString]
   aws ssm put-parameter --name "$1" --value "$2" --type "${3:-String}" --overwrite >/dev/null 2>&1 \
-    || echo "  경고: SSM 저장 실패($1) - 서버 IAM 역할에 ssm:PutParameter 권한 확인"
+    || { echo "ERROR: SSM write failed; check EC2 IAM profile and ssm:PutParameter" >&2; return 1; }
 }
 install_awscli() {
   command -v aws >/dev/null && return
@@ -87,7 +87,8 @@ metadata:
 spec:
   valuesContent: |-
     service:
-      type: NodePort
+      spec:
+        type: NodePort
     ports:
       web:
         nodePort: 30080
@@ -95,7 +96,7 @@ spec:
         nodePort: 30443
 EOF
   if ! command -v k3s >/dev/null; then
-    local ex="server --write-kubeconfig-mode 644 --node-name ${NODE_NAME} --tls-san ${pip}"
+    local ex="server --write-kubeconfig-mode 600 --node-name ${NODE_NAME} --tls-san ${pip}"
     [[ -n "${MASTER_TLS_SAN:-}" ]] && ex+=" --tls-san ${MASTER_TLS_SAN}"
     [[ -n "${CLUSTER_CIDR:-}" ]] && ex+=" --cluster-cidr ${CLUSTER_CIDR}"   # 예: 10.52.0.0/16 (허용 포트 목록 2번)
     [[ -n "${SERVICE_CIDR:-}" ]] && ex+=" --service-cidr ${SERVICE_CIDR}"   # 예: 10.53.0.0/16

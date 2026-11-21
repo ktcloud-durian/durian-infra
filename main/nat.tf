@@ -9,7 +9,7 @@ variable "nat_enabled" {
 
 variable "nat_ami_id" {
   type    = string
-  default = "ami-0e0eaae1fc96ade32"
+  default = null
 }
 
 variable "nat_instance_type" {
@@ -20,7 +20,7 @@ variable "nat_instance_type" {
 resource "aws_instance" "nat" {
   for_each = var.nat_enabled ? local.az_keys : {}
 
-  ami                         = var.nat_ami_id
+  ami                         = coalesce(var.nat_ami_id, data.aws_ssm_parameter.ubuntu.value)
   instance_type               = var.nat_instance_type
   subnet_id                   = aws_subnet.public[each.key].id
   associate_public_ip_address = true

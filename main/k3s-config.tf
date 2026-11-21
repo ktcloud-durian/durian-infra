@@ -1,77 +1,87 @@
-# DURIAN AWS K3s - Draft Configuration
-# Do not enable deployment until HA datastore is decided.
-
+# DURIAN independent AWS K3s clusters: A in 2a, C in 2c.
+# Everything below remains opt-in, and nothing launches at default values.
 variable "aws_k3s_enabled" {
-  description = "Enable new AWS K3s resources"
+  description = "Create new K3s Master/Worker EC2 resources (requires explicit guard approvals)"
   type        = bool
   default     = false
 }
 
 variable "aws_k3s_master_count" {
-  description = "Planned K3s master count"
+  description = "Required master count: exactly one per cluster/AZ"
   type        = number
   default     = 2
-
   validation {
-    condition = (
-      var.aws_k3s_master_count >= 1 &&
-      var.aws_k3s_master_count <= 2 &&
-      floor(var.aws_k3s_master_count) == var.aws_k3s_master_count
-    )
-    error_message = "Master count must be 1 or 2."
+    condition     = var.aws_k3s_master_count == 2
+    error_message = "DURIAN independent design requires exactly two Masters."
   }
 }
 
 variable "aws_k3s_worker_desired" {
-  description = "Planned ASG worker count"
+  description = "Required total Worker count: exactly one per AZ"
   type        = number
   default     = 2
-
   validation {
-    condition = (
-      var.aws_k3s_worker_desired >= 1 &&
-      floor(var.aws_k3s_worker_desired) == var.aws_k3s_worker_desired
-    )
-    error_message = "Worker count must be a positive integer."
+    condition     = var.aws_k3s_worker_desired == 2
+    error_message = "DURIAN independent design requires exactly two Workers."
   }
 }
 
 variable "aws_k3s_datastore" {
-  description = "pending / external / embedded_etcd"
+  description = "Per-cluster local K3s datastore: sqlite (NOT external MariaDB HA)"
   type        = string
-  default     = "pending"
+  default     = "sqlite"
+  validation {
+    condition     = var.aws_k3s_datastore == "sqlite"
+    error_message = "This DURIAN layout uses two independent SQLite control planes."
+  }
 }
 
 variable "aws_k3s_pod_cidr" {
-  description = "AWS K3s Pod CIDR (draft)"
+  description = "Pod CIDR for each independent cluster; not advertised via Tailscale"
   type        = string
   default     = "10.52.0.0/16"
 }
 
 variable "aws_k3s_service_cidr" {
-  description = "AWS K3s Service CIDR (draft)"
+  description = "Service CIDR for each independent cluster; not advertised via Tailscale"
   type        = string
   default     = "10.53.0.0/16"
 }
 
-
 variable "aws_k3s_master_instance_type" {
-  description = "Master EC2 type - draft"
-  type        = string
-  default     = "t3.medium"
+  type    = string
+  default = "t3.medium"
 }
+
 variable "aws_k3s_worker_instance_type" {
-  description = "Worker EC2 type - draft"
-  type        = string
-  default     = "t3.small"
+  type    = string
+  default = "t3.small"
 }
 
 variable "aws_k3s_image_registry" {
-  description = "Application image source: ghcr (team release workflow) or ecr"
+  description = "Application image source (ECR bootstrap not yet integrated into team install.sh)"
   type        = string
   default     = "ghcr"
   validation {
     condition     = contains(["ghcr", "ecr"], var.aws_k3s_image_registry)
-    error_message = "aws_k3s_image_registry must be ghcr or ecr."
+    error_message = "Registry must be ghcr or ecr."
   }
+}
+
+variable "aws_k3s_argocd_chart_version" {
+  description = "Pinned argo/argo-cd chart version, required before enabling K3s bootstrap"
+  type        = string
+  default     = ""
+}
+
+variable "aws_k3s_network_approved" {
+  description = "Set true ONLY after validating private subnet outbound access (NAT/approved path)"
+  type        = bool
+  default     = false
+}
+
+variable "aws_k3s_require_tailscale" {
+  description = "Fail bootstrap if Tailscale enrollment was skipped or unsuccessful"
+  type        = bool
+  default     = true
 }

@@ -1,33 +1,26 @@
+# Embed the actual PR #10 team installer. No second HA installer is executed.
+# Script is gzip+base64 compressed to respect AWS EC2 User Data limits.
 locals {
   k3s_userdata_common = {
-    image_registry      = var.aws_k3s_image_registry
-    team_prep_gz        = base64gzip(file("${path.module}/scripts/team-node-prep.sh"))
-    argocd_installer_gz = base64gzip(file("${path.module}/scripts/install-argocd-gitops.sh"))
-    traefik_config_gz   = base64gzip(file("${path.module}/scripts/traefik-config.yaml"))
-    bootstrap_runner_gz = base64gzip(file("${path.module}/scripts/run-k3s-bootstrap.sh"))
-    bootstrap_execute   = var.aws_k3s_bootstrap_approved
-    ecr_setup_gz        = base64gzip(file("${path.module}/scripts/setup-ecr-provider.sh"))
-    ecr_config_gz       = base64gzip(file("${path.module}/scripts/ecr-credential-provider-config.yaml"))
-    k3s_version         = var.aws_k3s_version
-    ecr_fetch_gz        = base64gzip(file("${path.module}/scripts/fetch-ecr-provider.sh"))
-    ecr_provider_sha256 = trimspace(file("${path.module}/scripts/ecr-provider.sha256"))
-    ecr_s3_bucket       = var.aws_k3s_ecr_s3_bucket
-    ecr_s3_key          = var.aws_k3s_ecr_s3_key
+    install_script_gz    = base64gzip(file("${path.module}/scripts/install.sh"))
+    k3s_version          = var.aws_k3s_version
+    argocd_chart_version = var.aws_k3s_argocd_chart_version
+    pod_cidr             = var.aws_k3s_pod_cidr
+    service_cidr         = var.aws_k3s_service_cidr
+    bootstrap_execute    = var.aws_k3s_bootstrap_approved
+    require_tailscale    = var.aws_k3s_require_tailscale
+    region               = var.region
   }
-
-  k3s_master_user_data = templatefile(
-    "${path.module}/scripts/k3s-userdata.sh.tftpl",
-    merge(local.k3s_userdata_common, {
-      role           = "master"
-      role_script_gz = base64gzip(file("${path.module}/scripts/install-k3s-ha-master.sh"))
-    })
-  )
-
-  k3s_worker_user_data = templatefile(
-    "${path.module}/scripts/k3s-userdata.sh.tftpl",
-    merge(local.k3s_userdata_common, {
-      role           = "worker"
-      role_script_gz = base64gzip(file("${path.module}/scripts/install-k3s-ha-worker.sh"))
-    })
-  )
+  k3s_master_user_data = {
+    for cluster in keys(local.az_keys) : cluster => templatefile(
+      "${path.module}/scripts/k3s-userdata.sh.tftpl",
+      merge(local.k3s_userdata_common, { role = "master", cluster = cluster })
+    )
+  }
+  k3s_worker_user_data = {
+    for cluster in keys(local.az_keys) : cluster => templatefile(
+      "${path.module}/scripts/k3s-userdata.sh.tftpl",
+      merge(local.k3s_userdata_common, { role = "worker", cluster = cluster })
+    )
+  }
 }
