@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+# DURIAN opt-in NAT EC2 (Ubuntu 24.04 LTS).
+# Runs on NAT instance ONLY, never on Master/Worker.
+# The public subnet must already have IGW routing; instance has public IPv4
+# and source_dest_check=false, both managed in nat.tf.
+
+LOG=/var/log/durian-nat-bootstrap.log
+exec > >(tee -a "$LOG") 2>&1
+
+echo '[DURIAN NAT] Starting Ubuntu NAT bootstrap'
+
+# Install iptables persistence before configuring the forwarding firewall.
+apt-get update -y
+apt-get install -y iptables iptables-persistent
+
+# Forward IPv4 traffic and persist across reboots.
+printf 'net.ipv4.ip_forward=1\n' > /etc/sysctl.d/99-durian-nat.conf
+sysctl -p /etc/sysctl.d/99-durian-nat.conf
+
+test "$(sysctl -n net.ipv4.ip_forward)" = '1'
+WAN_IF=$(ip -o -4 route show default | awk '{print $5; exit}')
+test -n "$WAN_IF"
+
+# Deny forwarding by default; keep returning traffic.
+iptables -P FORWARD DROP
+iptables -C FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || \
+  iptables -I FORWARD 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# Allow only approved destinations for new connections from our own AZ's
+# application and monitoring subnets. AWS SG independently restricts egress.
+# Note: strict UDP destinations may force Tailscale to DERP relay via HTTPS.
+for NET in '${app_cidr}' '${mon_cidr}'; do
+  for PORT in 80 443; do
+    iptables -C FORWARD -s "$NET" -o "$WAN_IF" -p tcp --dport "$PORT" -j ACCEPT 2>/dev/null || \
+      iptables -A FORWARD -s "$NET" -o "$WAN_IF" -p tcp --dport "$PORT" -j ACCEPT
+  done
+  for PORT in 3478 41641; do
+    iptables -C FORWARD -s "$NET" -o "$WAN_IF" -p udp --dport "$PORT" -j ACCEPT 2>/dev/null || \
+      iptables -A FORWARD -s "$NET" -o "$WAN_IF" -p udp --dport "$PORT" -j ACCEPT
+  done
+  iptables -t nat -C POSTROUTING -s "$NET" -o "$WAN_IF" -j MASQUERADE 2>/dev/null || \
+    iptables -t nat -A POSTROUTING -s "$NET" -o "$WAN_IF" -j MASQUERADE
+done
+
+netfilter-persistent save
+
+echo "[DURIAN NAT] ip_forward=$(sysctl -n net.ipv4.ip_forward) WAN_IF=$WAN_IF"
+echo '[DURIAN NAT] Bootstrap complete. Verify private subnet egress separately.'
