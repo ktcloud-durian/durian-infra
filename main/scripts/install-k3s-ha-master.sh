@@ -2,6 +2,13 @@
 set -euo pipefail
 umask 077
 
+# Retired by PR9 independent-cluster migration: the external-DB HA flow is unsupported.
+# Use scripts/install.sh with ROLE=master and CLUSTER=a or c instead.
+if [[ "${1:-}" == "--install" ]]; then
+  echo "ERROR: legacy external-DB HA installer retired (PR9/PR10); use scripts/install.sh" >&2
+  exit 1
+fi
+
 # DURIAN AWS K3s HA Master - DRAFT
 # External MariaDB datastore on OpenStack.
 # Never run until team security/network approval.

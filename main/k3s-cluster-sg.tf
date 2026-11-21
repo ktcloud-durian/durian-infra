@@ -123,6 +123,9 @@ resource "aws_vpc_security_group_egress_rule" "k3s_cluster_internal" {
 # EC2 bootstrap (apt/K3s/Helm/SSM/GitHub) and Tailscale outbound.
 # Egress alone does not create a route: private subnets still require approved NAT
 # or endpoints, and VPC DNS/NTP need checking before enabling the cluster.
+# EX-03 (NET-01): isolated master/worker startup via approved NAT path
+# Scope: this Terraform resource only. Review 2026-12-04.
+#trivy:ignore:AVD-AWS-0104:exp:2026-12-04
 resource "aws_vpc_security_group_egress_rule" "k3s_cluster_bootstrap" {
   for_each = local.k3s_cluster_outbound_flows
 

@@ -79,6 +79,8 @@ master() {
   mkdir -p /var/lib/rancher/k3s/server/manifests
   cat > /var/lib/rancher/k3s/server/manifests/traefik-config.yaml <<'EOF'
 # ALB 타깃 그룹이 가리킬 NodePort (HTTP 30080 / HTTPS 30443)
+# EX-09: K3s-managed Traefik HelmChartConfig must be in kube-system.
+# V.1 security exception; review 2026-12-04. Not a Trivy scanner suppression in shell.
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
 metadata:

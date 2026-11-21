@@ -99,6 +99,9 @@ resource "aws_vpc_security_group_ingress_rule" "nat_mon" {
   description = "Private monitor ${each.value.protocol} ${each.value.port} to NAT"
 }
 
+# EX-03 (NET-01): approved NAT instance egress 80/443/tcp and 3478/41641/udp
+# Scope: this Terraform resource only. Review 2026-12-04.
+#trivy:ignore:AVD-AWS-0104:exp:2026-12-04
 resource "aws_vpc_security_group_egress_rule" "nat_internet" {
   for_each = var.nat_enabled ? local.nat_allowed_ports : {}
 

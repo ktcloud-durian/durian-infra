@@ -6,6 +6,9 @@ locals {
 }
 
 # HTTPS: SSM, ECR, GitHub, package downloads
+# EX-03 (NET-01): SSM/GitHub/registry HTTPS via NAT (443/tcp)
+# Scope: resource only. Review 2026-12-04.
+#trivy:ignore:AVD-AWS-0104:exp:2026-12-04
 resource "aws_vpc_security_group_egress_rule" "bootstrap_https" {
   for_each = local.bootstrap_roles
 
@@ -19,6 +22,9 @@ resource "aws_vpc_security_group_egress_rule" "bootstrap_https" {
 }
 
 # HTTP: Ubuntu package repositories during initial setup
+# EX-03 (NET-01): Ubuntu bootstrap via NAT (80/tcp)
+# Scope: resource only. Review 2026-12-04.
+#trivy:ignore:AVD-AWS-0104:exp:2026-12-04
 resource "aws_vpc_security_group_egress_rule" "bootstrap_http" {
   for_each = local.bootstrap_roles
 
@@ -77,6 +83,9 @@ resource "aws_vpc_security_group_egress_rule" "mgmt_node_exporter" {
 
 # Tailscale direct connection and STUN outbound.
 # Applied to common K3s nodes and monitoring SG.
+# EX-03 (NET-01): Tailscale direct/STUN via NAT (3478,41641/udp)
+# Scope: resource only. Review 2026-12-04.
+#trivy:ignore:AVD-AWS-0104:exp:2026-12-04
 resource "aws_vpc_security_group_egress_rule" "tailscale_udp" {
   for_each = {
     for pair in setproduct(["node", "mgmt"], [3478, 41641]) :
