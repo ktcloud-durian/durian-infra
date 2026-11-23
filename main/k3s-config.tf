@@ -50,7 +50,7 @@ variable "aws_k3s_service_cidr" {
 
 variable "aws_k3s_master_instance_type" {
   type    = string
-  default = "t3.medium"
+  default = "m7i-flex.large"
 }
 
 variable "aws_k3s_worker_instance_type" {
