@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+# DURIAN - ONE clean EC2, ONE cluster, ONE team installer.
+DEST=/opt/durian/bootstrap
+install -d -m 0700 "$DEST"
+printf '%s' '${install_script_gz}' | base64 -d | gzip -d > "$DEST/install.sh"
+chmod 0700 "$DEST/install.sh"
+
+# No K3s, Argo CD or VPN installation until the team explicitly enables bootstrap.
+if [[ '${bootstrap_execute}' != 'true' ]]; then
+  echo 'DURIAN: bootstrap disabled'
+  exit 0
+fi
+
+# Prerequisite: private subnet outbound path (NAT or team-approved alternative).
+# No long-lived AWS keys in User Data; the EC2 instance profile supplies credentials.
+export ROLE='${role}'
+export CLUSTER='${cluster}'
+export AWS_REGION='${region}'
+export K3S_VERSION='${k3s_version}'
+export ARGOCD_CHART_VERSION='${argocd_chart_version}'
+export CLUSTER_CIDR='${pod_cidr}'
+export SERVICE_CIDR='${service_cidr}'
+export SECRETS_ENCRYPTION=true
+export ENABLE_KSM=false
+export TS_SSH=false
+
+# Use unique names within the tailnet as well as Kubernetes.
+META_TOKEN=$(curl -fsS --max-time 5 -X PUT \
+  -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' \
+  http://169.254.169.254/latest/api/token)
+INSTANCE_ID=$(curl -fsS --max-time 5 -H "X-aws-ec2-metadata-token: $META_TOKEN" \
+  http://169.254.169.254/latest/meta-data/instance-id)
+export NODE_NAME="durian-$ROLE-$CLUSTER-$INSTANCE_ID"
+
+# Team PR #10 uses /durian/k3s/<cluster>/{token,master-ip} and the
+# role-specific /durian/tailscale/aws-{master,worker} key paths.
+bash "$DEST/install.sh"
+
+if [[ '${require_tailscale}' == 'true' ]]; then
+  tailscale status --json | jq -e '.BackendState == "Running"' >/dev/null || {
+    echo 'DURIAN ERROR: Tailscale did not join; check SSM permissions/key/tag ACL' >&2
+    exit 1
+  }
+fi

@@ -4,7 +4,7 @@
 data "aws_caller_identity" "me" {}
 
 resource "aws_s3_bucket" "this" {
-  for_each = var.buckets
+  for_each = local.durian_bucket_purposes
   bucket   = "durian-${each.key}-${data.aws_caller_identity.me.account_id}"
 }
 
