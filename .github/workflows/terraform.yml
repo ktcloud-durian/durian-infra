@@ -1,10 +1,10 @@
 name: Terraform
+# 보안(PIP-02·PIP-05): Action은 커밋 SHA로 고정, 공개 저장소라 plan·apply 전문을 로그·PR 댓글에 남기지 않음
+#   댓글 = 요약 한 줄 + 바뀌는 리소스 주소 목록 (계정 ID 12자리는 가림), 로그 = 같은 요약 + 계정 ID 마스킹
 
 on:
+  # plan은 main 규칙 집합의 필수 검사라 경로 필터를 두지 않음 (경로가 안 맞는 PR은 검사가 안 떠서 병합이 막힘)
   pull_request:
-    paths:
-      - 'main/**'
-      - '.github/workflows/terraform.yml'
   push:
     branches: [main]
     paths:
@@ -42,17 +42,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: "~> 1.11.0"
           terraform_wrapper: false
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: mask account id
+        run: echo "::add-mask::$(aws sts get-caller-identity --query Account --output text)"
 
       - name: fmt (warning only)
         continue-on-error: true
@@ -71,28 +74,47 @@ jobs:
         working-directory: ${{ env.TF_DIR }}
         run: |
           set +e
-          terraform plan -no-color -detailed-exitcode > plan.txt 2>&1
+          terraform plan -no-color -detailed-exitcode > plan.log 2>&1
           code=$?
           echo "exitcode=$code" >> "$GITHUB_OUTPUT"
-          cat plan.txt
           # 0 = no changes, 2 = changes, 1 = error
+          {
+            if [ "$code" -eq 0 ]; then
+              echo "No changes."
+            elif [ "$code" -eq 2 ]; then
+              grep -E '^Plan:' plan.log | tail -1
+              echo
+              echo '```'
+              grep -E '^  # .+ (will be|must be) ' plan.log | sed -E 's/^  # //'
+              echo '```'
+            else
+              echo "Plan failed. 오류 부분만 표시 (전문은 로컬에서 terraform plan)"
+              echo '```'
+              { grep -E -A4 '^(│ )?Error' plan.log || tail -20 plan.log; } | tail -60
+              echo '```'
+            fi
+          } | sed -E 's/[0-9]{12}/************/g' > plan-summary.md
+          cat plan-summary.md
+          rm -f plan.log
           if [ "$code" -eq 1 ]; then exit 1; fi
 
       - name: Comment plan on PR
         if: always() && steps.plan.outcome != 'skipped'
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const fs = require('fs');
-            const p = `${process.env.TF_DIR}/plan.txt`;
-            let body = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '(no plan output)';
-            if (body.length > 60000) body = body.slice(-60000);
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: '### Terraform plan (`' + process.env.TF_DIR + '`)\n```\n' + body + '\n```',
-            });
+            const p = `${process.env.TF_DIR}/plan-summary.md`;
+            let summary = fs.existsSync(p) ? fs.readFileSync(p, 'utf8').trim() : '(no plan output)';
+            if (summary.length > 60000) summary = summary.slice(0, 60000) + '\n…(생략)';
+            const marker = '<!-- terraform-plan -->';
+            const body = `${marker}\n### Terraform plan (\`${process.env.TF_DIR}\`) — ${context.sha.slice(0, 7)}\n${summary}`;
+            // 같은 PR에는 댓글 하나만 두고 새 커밋마다 고쳐 씀
+            const { owner, repo } = context.repo;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: context.issue.number });
+            const old = comments.find(c => c.user.type === 'Bot' && c.body.startsWith(marker));
+            if (old) await github.rest.issues.updateComment({ owner, repo, comment_id: old.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number: context.issue.number, body });
 
   apply:
     # Safety switch: set repository variable TF_APPLY_ENABLED=true to allow apply.
@@ -101,17 +123,20 @@ jobs:
     environment: production   # approval gate (Required reviewers) + OIDC subject for the apply role
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: "~> 1.11.0"
           terraform_wrapper: false
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: mask account id
+        run: echo "::add-mask::$(aws sts get-caller-identity --query Account --output text)"
 
       - name: init
         working-directory: ${{ env.TF_DIR }}
@@ -119,11 +144,25 @@ jobs:
 
       - name: plan
         working-directory: ${{ env.TF_DIR }}
-        run: terraform plan -no-color -out=tfplan
+        run: |
+          set +e
+          terraform plan -no-color -out=tfplan > plan.log 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then { grep -E -A4 '^(│ )?Error' plan.log || tail -20 plan.log; } | tail -60 | sed -E 's/[0-9]{12}/************/g'; exit "$code"; fi
+          grep -E '^Plan:|No changes' plan.log | tail -1
+          grep -E '^  # .+ (will be|must be) ' plan.log | sed -E 's/^  # //; s/[0-9]{12}/************/g'
+          rm -f plan.log
 
       - name: apply
         working-directory: ${{ env.TF_DIR }}
-        run: terraform apply -no-color tfplan
+        run: |
+          set +e
+          terraform apply -no-color tfplan > apply.log 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then { grep -E -A4 '^(│ )?Error' apply.log || tail -20 apply.log; } | tail -60 | sed -E 's/[0-9]{12}/************/g'
+          else grep -E '^Apply complete' apply.log; fi
+          rm -f apply.log
+          exit "$code"
 
   destroy:
     # Manual only. Needs TF_APPLY_ENABLED=true, input "destroy", and production Environment approval.
@@ -132,17 +171,20 @@ jobs:
     environment: production
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: "~> 1.11.0"
           terraform_wrapper: false
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: mask account id
+        run: echo "::add-mask::$(aws sts get-caller-identity --query Account --output text)"
 
       - name: init
         working-directory: ${{ env.TF_DIR }}
@@ -150,4 +192,11 @@ jobs:
 
       - name: destroy
         working-directory: ${{ env.TF_DIR }}
-        run: terraform destroy -no-color -auto-approve
+        run: |
+          set +e
+          terraform destroy -no-color -auto-approve > destroy.log 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then { grep -E -A4 '^(│ )?Error' destroy.log || tail -20 destroy.log; } | tail -60 | sed -E 's/[0-9]{12}/************/g'
+          else grep -E '^Destroy complete' destroy.log; fi
+          rm -f destroy.log
+          exit "$code"
