@@ -49,6 +49,19 @@ resource "aws_iam_role_policy" "k3s_parameters" {
         Effect   = "Allow"
         Action   = ["ssm:GetParameter"]
         Resource = "${local.k3s_parameter_prefix}/tailscale/aws-${each.value.role}"
+      },
+      {
+        # AmazonSSMManagedInstanceCore가 ssm:GetParameter(s)를 Resource "*"로 허용해서,
+        # 위 Allow만으로는 다른 클러스터 토큰·보안 웹훅까지 읽힘. 명시적 Deny가 Allow보다 우선 (IAM-01 최소 권한)
+        Sid    = "DenyOtherDurianParameters"
+        Effect = "Deny"
+        Action = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath", "ssm:GetParameterHistory"]
+        NotResource = [
+          "${local.k3s_parameter_prefix}/k3s/${each.value.cluster}/token",
+          "${local.k3s_parameter_prefix}/k3s/${each.value.cluster}/master-ip",
+          "${local.k3s_parameter_prefix}/tailscale/aws-${each.value.role}",
+          "arn:aws:ssm:*::parameter/aws/*" # AWS 공개 파라미터(AMI 등)
+        ]
       }
     ]
   })
