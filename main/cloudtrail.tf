@@ -166,5 +166,9 @@ resource "aws_cloudtrail" "this" {
   include_global_service_events = true
   enable_log_file_validation    = true # 로그 위변조 확인
 
-  depends_on = [aws_s3_bucket_policy.trail]
+  # CIS 4.x·5.x: CloudWatch Logs로도 보내서 지표 필터·경보를 검 (cis_alarms.tf)
+  cloud_watch_logs_group_arn = "${aws_cloudwatch_log_group.trail.arn}:*"
+  cloud_watch_logs_role_arn  = aws_iam_role.trail_cwl.arn
+
+  depends_on = [aws_s3_bucket_policy.trail, aws_iam_role_policy.trail_cwl]
 }

@@ -26,7 +26,7 @@ imds() { # EC2 메타데이터(IMDSv2)
 ssm_get() { aws ssm get-parameter --name "$1" --with-decryption --query Parameter.Value --output text 2>/dev/null || true; }
 ssm_put() { # ssm_put 이름 값 [String|SecureString]
   aws ssm put-parameter --name "$1" --value "$2" --type "${3:-String}" --overwrite >/dev/null 2>&1 \
-    || echo "  경고: SSM 저장 실패($1) - 서버 IAM 역할에 ssm:PutParameter 권한 확인"
+    || { echo "ERROR: SSM write failed; check EC2 IAM profile and ssm:PutParameter" >&2; return 1; }
 }
 install_awscli() {
   command -v aws >/dev/null && return
@@ -48,7 +48,7 @@ tailscale_setup() {
   [[ "$key" == tskey-client-* ]] && key="${key}?ephemeral=${TS_EPHEMERAL:-$([[ $ROLE == worker ]] && echo true || echo false)}&preauthorized=true"
   local args=("--authkey=${key}"
               "--advertise-tags=${TS_TAG:-tag:durian-${ROLE}}" "--hostname=${NODE_NAME}")
-  # Tailscale SSH는 기본 끔 (NET-04: AWS 접속은 SSM만). 켜면 ACL ssh 규칙을 먼저 정해야 함: TS_SSH=true
+  # NET-04: AWS access via SSM. Tailscale SSH disabled by default.
   [[ "${TS_SSH:-false}" == "true" ]] && args+=(--ssh)
   if [[ -n "${TS_ROUTES:-}" ]]; then                  # 서브넷 라우터 (예: 10.20.0.0/16)
     echo 'net.ipv4.ip_forward=1' > /etc/sysctl.d/99-tailscale.conf && sysctl -p /etc/sysctl.d/99-tailscale.conf
@@ -81,6 +81,8 @@ master() {
   mkdir -p /var/lib/rancher/k3s/server/manifests
   cat > /var/lib/rancher/k3s/server/manifests/traefik-config.yaml <<'EOF'
 # ALB 타깃 그룹이 가리킬 NodePort (HTTP 30080 / HTTPS 30443)
+# EX-09: K3s-managed Traefik HelmChartConfig must be in kube-system.
+# V.1 security exception; review 2026-12-04. Not a Trivy scanner suppression in shell.
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
 metadata:
@@ -89,7 +91,8 @@ metadata:
 spec:
   valuesContent: |-
     service:
-      type: NodePort
+      spec:
+        type: NodePort
     ports:
       web:
         nodePort: 30080
@@ -97,11 +100,11 @@ spec:
         nodePort: 30443
 EOF
   if ! command -v k3s >/dev/null; then
-    local ex="server --write-kubeconfig-mode 644 --node-name ${NODE_NAME} --tls-san ${pip}"
+    local ex="server --write-kubeconfig-mode 600 --node-name ${NODE_NAME} --tls-san ${pip}"
     [[ -n "${MASTER_TLS_SAN:-}" ]] && ex+=" --tls-san ${MASTER_TLS_SAN}"
     [[ -n "${CLUSTER_CIDR:-}" ]] && ex+=" --cluster-cidr ${CLUSTER_CIDR}"   # 예: 10.52.0.0/16 (허용 포트 목록 2번)
     [[ -n "${SERVICE_CIDR:-}" ]] && ex+=" --service-cidr ${SERVICE_CIDR}"   # 예: 10.53.0.0/16
-    [[ "${SECRETS_ENCRYPTION:-true}" == "true" ]] && ex+=" --secrets-encryption"   # SRV-04 (기본 켬, 끄려면 SECRETS_ENCRYPTION=false)
+    [[ "${SECRETS_ENCRYPTION:-true}" == "true" ]] && ex+=" --secrets-encryption"   # SRV-04
     [[ "${MASTER_TAINT:-false}" == "true" ]] && ex+=" --node-taint node-role.kubernetes.io/control-plane=true:NoSchedule"
     curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION:-}" \
       INSTALL_K3S_CHANNEL="${K3S_CHANNEL:-stable}" INSTALL_K3S_EXEC="$ex" sh -

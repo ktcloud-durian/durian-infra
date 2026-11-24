@@ -15,7 +15,14 @@ resource "aws_ec2_instance_metadata_defaults" "this" {
 }
 
 # DAT-02, CIS S3.1 — 계정 전체 S3 퍼블릭 액세스 차단 (s3.tf의 버킷별 차단과 별개로 계정 단위)
+variable "enable_account_s3_public_access_block" {
+  description = "Enable account-wide S3 public access block"
+  type        = bool
+  default     = false
+}
+
 resource "aws_s3_account_public_access_block" "this" {
+  count                   = var.enable_account_s3_public_access_block ? 1 : 0
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true

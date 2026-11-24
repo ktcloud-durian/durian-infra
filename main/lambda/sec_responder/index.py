@@ -3,7 +3,9 @@
 1) 보안그룹 인바운드에 0.0.0.0/0·::/0 이 열리면 그 규칙만 규칙 ID 단위로 지우고 Discord 보안 채널에 알림
    입력: EventBridge 'AWS API Call via CloudTrail' (AuthorizeSecurityGroupIngress, ModifySecurityGroupRules)
    이벤트에서 보안그룹 ID만 꺼내고 그 그룹의 '현재' 규칙을 다시 조회해서 판단 (같은 이벤트가 두 번 와도 결과 같음)
-2) GuardDuty 탐지(심각도 4 이상)는 알림만
+2) CloudTrail 무력화(StopLogging 등), IAM 권한 부여·키 생성, 루트 로그인은 알림만 (LOG-05·07)
+   IAM·로그인은 us-east-1에만 기록되므로 같은 코드를 us-east-1에도 배포함 (detection_global.tf)
+3) GuardDuty 탐지(심각도 4 이상)는 알림만. 지금 계정은 GuardDuty 미지원(EX-10)이라 들어오지 않음
 모드: MODE=notify(알림만, 기본) | revoke(실제 삭제). 예외: EXCEPTIONS (코드·Terraform으로만 바뀜, 태그는 근거로 안 씀)
 웹훅 URL은 코드·환경 변수에 두지 않고 SSM SecureString(WEBHOOK_PARAM)에서 읽음 (SEC-01·05)
 """
@@ -66,7 +68,9 @@ def _discord(msg):
         return
     try:
         if _webhook is None:
-            _webhook = boto3.client('ssm').get_parameter(Name=name, WithDecryption=True)['Parameter']['Value']
+            # us-east-1 Lambda도 서울 SSM의 같은 웹훅을 읽음 (WEBHOOK_REGION). 없으면 자기 리전
+            ssm = boto3.client('ssm', region_name=os.environ.get('WEBHOOK_REGION') or None)
+            _webhook = ssm.get_parameter(Name=name, WithDecryption=True)['Parameter']['Value']
         text = '[보안] ' + ' | '.join(f'{k}={v}' for k, v in msg.items())
         req = urllib.request.Request(_webhook, data=json.dumps({'content': text[:1900]}).encode(),
                                      headers={'Content-Type': 'application/json', 'User-Agent': 'durian-sec-responder'})
@@ -82,10 +86,40 @@ def guardduty(event, notify):
     return {'revoked': []}
 
 
+# 알림만 하는 감사 이벤트: EventBridge source → 알림 종류
+AUDIT_SOURCES = {'aws.cloudtrail': 'cloudtrail-tamper', 'aws.iam': 'iam-change', 'aws.signin': 'root-login'}
+HIGH_RISK = ('AdministratorAccess', 'IAMFullAccess', 'PowerUserAccess')
+
+
+def audit(event, notify, kind):
+    """누가·언제·무엇을 했는지만 알림. 키 값·비밀번호 같은 응답 내용은 보내지 않음"""
+    d = event.get('detail', {})
+    ui = d.get('userIdentity') or {}
+    rp = d.get('requestParameters') or {}
+    policy = rp.get('policyArn') or rp.get('policyName')
+    msg = {
+        'type': kind,
+        'event': d.get('eventName'),
+        'by': ui.get('arn') or ui.get('type'),
+        'target': rp.get('userName') or rp.get('roleName') or rp.get('groupName') or rp.get('name'),
+        'policy': policy,
+        'result': d.get('errorCode') or (d.get('responseElements') or {}).get('ConsoleLogin') or 'Success',
+        'sourceIP': d.get('sourceIPAddress'),
+        'region': d.get('awsRegion'),
+        'time': d.get('eventTime'),
+    }
+    if kind in ('cloudtrail-tamper', 'root-login') or (policy and any(h in policy for h in HIGH_RISK)):
+        msg['severity'] = 'high'
+    notify({k: v for k, v in msg.items() if v})
+    return {'revoked': []}
+
+
 def handler(event, context=None, ec2=None, notify=None):
     notify = notify or _discord
     if event.get('source') == 'aws.guardduty':
         return guardduty(event, notify)
+    if event.get('source') in AUDIT_SOURCES:
+        return audit(event, notify, AUDIT_SOURCES[event['source']])
     ec2 = ec2 or boto3.client('ec2')
     detail = event.get('detail', {})
     mode = os.environ.get('MODE', 'notify')
