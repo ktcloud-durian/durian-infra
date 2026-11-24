@@ -14,7 +14,7 @@ variable "instances" {
     ami_id        = optional(string) # 지정하면 이 AMI로 부팅하고 user_data는 실행하지 않음
   }))
   default = {
-    k3s = { role = "k3s", instance_type = "m7i-flex.large" }
+    k3s = { role = "k3s", instance_type = "m7i-flex.large", ami_id = "ami-0427d6051617172b0" }
   }
 }
 
