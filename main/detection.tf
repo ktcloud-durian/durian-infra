@@ -1,6 +1,8 @@
 # 탐지·자동 대응 (보안 기준서 LOG-05·06, 시연 4·5). 담당: 보안(송윤지)
 # CloudTrail 트레일(cloudtrail.tf)이 있어야 EventBridge가 API 호출 이벤트를 받음
-# 흐름: SG 인바운드 변경 / GuardDuty 탐지 → EventBridge → Lambda(sec_responder) → (삭제) + Discord 보안 채널
+# 흐름: SG 인바운드 변경 → EventBridge → Lambda(sec_responder) → (삭제) + Discord 보안 채널
+# CloudTrail 무력화(detection_tamper.tf), IAM 변경·루트 로그인(detection_global.tf, us-east-1)은 알림만
+# GuardDuty 규칙은 계정에서 GuardDuty를 지원하지 않아(EX-10) 이벤트가 오지 않음. 계정을 바꾸면 그대로 쓸 수 있게 남겨 둠
 
 data "archive_file" "sec_responder" {
   type        = "zip"
@@ -43,7 +45,10 @@ data "aws_iam_policy_document" "sec_responder" {
   statement {
     sid       = "WriteOwnLogs"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.sec_responder.arn}:*"]
+    resources = concat(
+      ["${aws_cloudwatch_log_group.sec_responder.arn}:*"],
+      [for lg in aws_cloudwatch_log_group.sec_responder_use1 : "${lg.arn}:*"] # us-east-1 Lambda (detection_global.tf)
+    )
   }
 }
 
