@@ -205,19 +205,82 @@ worker() {
 }
 
 ### ---------- monitor ----------
+# Prometheus + Alertmanager + Grafana (Docker Compose, /opt/monitoring). 재실행 가능.
+# - 3000/9090/9093은 127.0.0.1에만 바인딩. 접속은 SSM 포트 포워딩 (NET-06)
+# - 웹훅/Grafana 비밀번호는 SSM SecureString에서 읽어 secrets/ 파일로만 전달. 화면/로그 출력 금지 (SEC-01·05)
+# - 설정 반영은 HUP 신호: docker exec prometheus kill -HUP 1 (--web.enable-lifecycle 사용 안 함)
+# - 수집: Node Exporter만 (AWS=ec2_sd_configs 태그 필터, 온프렘=targets/onprem.json, 둘 다 tcp:9100만)
+#
+# Monitor EC2 전제 조건 (EC2 설정은 AWS 인프라 담당 Terraform이 만든다. 이 스크립트는 바꾸지 않고 확인만 한다)
+# - IMDSv2 required + hop limit 2 이상:
+#     Prometheus는 Docker 컨테이너(bridge 네트워크) 안에서 ec2_sd_configs로 EC2 API를 부른다.
+#     Access Key를 쓰지 않고 인스턴스 역할 자격 증명을 IMDS(169.254.169.254)에서 받는데,
+#     컨테이너 → docker0 → 호스트를 거치며 IP 패킷의 홉이 하나 늘어난다.
+#     hop limit 1이면 IMDSv2 토큰 응답이 컨테이너까지 오지 못해 자격 증명을 못 받고,
+#     node-aws 대상이 0개가 된다 (Prometheus 로그에 ec2 discovery 오류).
+#     설치 시작 때 이 값을 읽어 2 미만이면 WARN만 출력하고 설치는 계속한다.
+# - 인스턴스 역할 권한:
+#     필수: ec2:DescribeInstances (ec2_sd 노드 발견, 설치 시 hop limit 확인)
+#     선택: ec2:DescribeAvailabilityZones (AZ ID 라벨 __meta_ec2_availability_zone_id용, 팀 역할에는 없음)
+#     필수: ssm:GetParameter (SSM_PREFIX/grafana/admin-password, SSM_PREFIX/ops/discord-webhook)
+#     필수: SSM 접속 (AmazonSSMManagedInstanceCore)
+# - 보안그룹: 인바운드 0개. 아웃바운드 443(SSM·EC2 API·Docker Hub·grafana.com), 80(apt), 노드 SG로 9100
+#
+# 변수: NODE_TAG_KEY(기본 Role) NODE_TAG_VALUES(기본 master,worker, 쉼표 구분)
+#       PROMETHEUS_TAG / ALERTMANAGER_TAG / GRAFANA_TAG / DASH_NODE_FULL_REV / DASH_NODE_FULL_SHA256
 monitor() {
-  local base=/opt/monitoring mip pip dw gpw
-  pip=$(imds local-ipv4)
-  mip=$(ssm_get "$K3S_SSM/master-ip")
-  echo "[monitor 1/3] Docker"
+  local base=/opt/monitoring
+  local prom_tag="${PROMETHEUS_TAG:-v3.5.0}" am_tag="${ALERTMANAGER_TAG:-v0.28.1}" gf_tag="${GRAFANA_TAG:-12.0.2}"
+  local tag_key="${NODE_TAG_KEY:-Role}" tag_values="${NODE_TAG_VALUES:-master,worker}"
+  local dash_rev="${DASH_NODE_FULL_REV:-46}"
+  local dash_sha="${DASH_NODE_FULL_SHA256:-e58ddc5dc535d4c901f94da9648bc3e3d5ae7b6f78e98e185bce8b289961cea3}"
+  local dw gpw tagvals v url n iid hop re='[^A-Za-z0-9,._:/+=@-]'
+  local -a vals
+
+  echo "[monitor 1/6] 사전 확인 (IMDS hop limit, SSM 비밀값, 변수)"
+  # hop limit 확인 (위 '전제 조건' 참고). 실패하거나 2 미만이면 경고만 하고 계속한다.
+  iid=$(imds instance-id)
+  hop=""
+  [[ -n "$iid" ]] && hop=$(aws ec2 describe-instances --instance-ids "$iid" \
+    --query 'Reservations[0].Instances[0].MetadataOptions.HttpPutResponseHopLimit' --output text 2>/dev/null || true)
+  if [[ "$hop" =~ ^[0-9]+$ ]]; then
+    if (( hop < 2 )); then
+      echo "  WARN: IMDS hop limit=$hop (2 이상 필요). Prometheus 컨테이너가 EC2 자동 발견을 못 해 AWS 노드가 수집되지 않음"
+      echo "        → AWS 인프라 담당에게 Monitor EC2의 http_put_response_hop_limit=2 요청 (설치는 계속)"
+    else
+      echo "  IMDS hop limit=$hop (OK)"
+    fi
+  else
+    echo "  WARN: IMDS hop limit 확인 불가 (IMDS 응답 없음 또는 ec2:DescribeInstances 권한 없음). 설치는 계속"
+  fi
+  gpw=$(ssm_get "$SSM_PREFIX/grafana/admin-password")
+  if [[ -z "$gpw" ]]; then
+    echo "ERROR: Grafana 비밀번호($SSM_PREFIX/grafana/admin-password)가 SSM에 없거나 읽을 권한 없음 → 설치 중단" >&2
+    exit 1
+  fi
+  dw=$(ssm_get "$SSM_PREFIX/ops/discord-webhook")   # 팀: /durian/ops/discord-webhook (ops-alerts 채널)
+  if [[ "$tag_key$tag_values" =~ $re ]]; then
+    echo "ERROR: NODE_TAG_KEY/NODE_TAG_VALUES에 허용되지 않는 문자 (영문, 숫자, , . _ : / + = @ - 만)" >&2
+    exit 1
+  fi
+  IFS=',' read -ra vals <<< "$tag_values"
+  tagvals=""
+  for v in "${vals[@]}"; do tagvals+="\"$v\", "; done
+  tagvals="[${tagvals%, }]"
+
+  echo "[monitor 2/6] Docker"
   DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2
   systemctl enable --now docker
 
-  echo "[monitor 2/3] 설정 파일 생성 ($base)"
-  mkdir -p $base/{targets,rules,secrets,grafana/provisioning/datasources}
-  cat > $base/prometheus.yml <<'EOF'
+  echo "[monitor 3/6] 설정 파일 생성 ($base)"
+  mkdir -p $base/{targets,rules,secrets,grafana/provisioning/datasources,grafana/provisioning/dashboards,grafana/provisioning/plugins,grafana/provisioning/alerting,grafana/dashboards,grafana/cache}
+  chmod 700 $base/secrets
+  rm -f $base/targets/node-*.json $base/targets/ksm-*.json   # 이전 버전(고정 IP, kube-state-metrics) 파일 정리
+
+  cat > $base/prometheus.yml <<EOF
 global:
-  scrape_interval: 30s
+  scrape_interval: 15s
+  evaluation_interval: 15s
 alerting:
   alertmanagers:
     - static_configs:
@@ -228,47 +291,85 @@ scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: ['localhost:9090']
-  - job_name: node
+  # Monitor EC2 자신 (호스트의 Node Exporter)
+  - job_name: node-monitor
+    static_configs:
+      - targets: ['host.docker.internal:9100']
+        labels: { site: aws, name: ${NODE_NAME} }
+  # AWS 노드: EC2 태그로 자동 발견, 포트는 9100 고정 (인스턴스 역할 + IMDSv2 hop limit 2 필요: 함수 위 '전제 조건')
+  - job_name: node-aws
+    ec2_sd_configs:
+      - region: ${AWS_REGION}
+        port: 9100
+        refresh_interval: 60s
+        filters:
+          - name: tag:${tag_key}
+            values: ${tagvals}
+          - name: instance-state-name
+            values: ["running"]
+    relabel_configs:
+      - target_label: site
+        replacement: aws
+      - source_labels: [__meta_ec2_tag_Cluster]
+        target_label: cluster
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: name
+  # 온프렘 노드: targets/onprem.json 이 있을 때만 수집 (없으면 대상 0개)
+  - job_name: node-onprem
     file_sd_configs:
-      - files: ['/etc/prometheus/targets/node-*.json']
-  - job_name: kube-state-metrics
-    file_sd_configs:
-      - files: ['/etc/prometheus/targets/ksm-*.json']
+      - files: ['/etc/prometheus/targets/onprem.json']
+    relabel_configs:
+      # 허용 포트 목록 7.2: Monitor → 온프렘은 tcp:9100만. 다른 포트가 적힌 대상은 수집하지 않고 버린다
+      - source_labels: [__address__]
+        regex: '.+:9100'
+        action: keep
+      - target_label: site
+        replacement: onprem
 EOF
+
   cat > $base/rules/basic.yml <<'EOF'
 groups:
   - name: basic
     rules:
-      - alert: InstanceDown
+      - alert: NodeDown
         expr: up == 0
-        for: 2m
+        for: 1m
         labels: { severity: critical }
-        annotations: { summary: "{{ $labels.job }} {{ $labels.instance }} 응답 없음" }
+        annotations:
+          summary: '{{ with $labels.name }}{{ . }} {{ end }}{{ $labels.instance }} ({{ $labels.job }}) 응답 없음'
       - alert: DiskAlmostFull
-        expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes) < 0.15
+        expr: node_filesystem_avail_bytes{fstype!~"tmpfs|devtmpfs|overlay|squashfs|nsfs|ramfs"} / node_filesystem_size_bytes < 0.15
         for: 5m
         labels: { severity: warning }
-        annotations: { summary: "{{ $labels.instance }} 디스크 85% 이상 사용" }
+        annotations:
+          summary: '{{ with $labels.name }}{{ . }} {{ end }}{{ $labels.instance }} {{ $labels.mountpoint }} 남은 용량 15% 미만'
       - alert: MemoryHigh
-        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) < 0.10
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
         for: 5m
         labels: { severity: warning }
-        annotations: { summary: "{{ $labels.instance }} 메모리 90% 이상 사용" }
+        annotations:
+          summary: '{{ with $labels.name }}{{ . }} {{ end }}{{ $labels.instance }} 남은 메모리 10% 미만'
+      - alert: CpuHigh
+        expr: (1 - avg without (cpu, mode) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100 >= 90
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: '{{ with $labels.name }}{{ . }} {{ end }}{{ $labels.instance }} CPU 90% 이상 (10분)'
 EOF
-  # 수집 대상 (워커/온프레미스는 targets/node-*.json 파일을 추가하면 자동 반영)
-  local nodes="\"${pip}:9100\""
-  [[ -n "$mip" ]] && nodes+=",\"${mip}:9100\""
-  echo "[{\"targets\":[${nodes}],\"labels\":{\"cluster\":\"aws\"}}]" > $base/targets/node-aws.json
-  [[ -n "$mip" ]] && echo "[{\"targets\":[\"${mip}:30081\"],\"labels\":{\"cluster\":\"aws\"}}]" > $base/targets/ksm-aws.json
 
-  dw=$(ssm_get "$SSM_PREFIX/discord/webhook")
+  # 비밀값 파일: 같은 파일(inode)에 덮어써서 컨테이너 bind mount가 유지되게 한다. 값은 출력하지 않는다.
+  ( umask 077; printf '%s' "$gpw" > $base/secrets/grafana_admin_password )
+  chown 472:0 $base/secrets/grafana_admin_password && chmod 400 $base/secrets/grafana_admin_password
+  ( umask 077; printf '%s' "$dw" > $base/secrets/discord_webhook )   # 웹훅이 없으면 빈 파일 (마운트 유지용)
+  chown 65534:65534 $base/secrets/discord_webhook && chmod 400 $base/secrets/discord_webhook
   if [[ -n "$dw" ]]; then
-    printf '%s' "$dw" > $base/secrets/discord_webhook
-    chown 65534:65534 $base/secrets/discord_webhook && chmod 600 $base/secrets/discord_webhook
     cat > $base/alertmanager.yml <<'EOF'
 route:
   receiver: discord
   group_by: [alertname, instance]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 4h
 receivers:
   - name: discord
     discord_configs:
@@ -276,71 +377,158 @@ receivers:
         send_resolved: true
 EOF
   else
-    echo "  Discord 웹훅($SSM_PREFIX/discord/webhook) 없음 → 알림 전송 없이 설치"
+    echo "  Discord 웹훅($SSM_PREFIX/ops/discord-webhook) 없음 → 알림 전송 없이 설치"
     printf 'route:\n  receiver: none\nreceivers:\n  - name: none\n' > $base/alertmanager.yml
   fi
+  unset gpw dw
 
   cat > $base/grafana/provisioning/datasources/prometheus.yml <<'EOF'
 apiVersion: 1
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
 datasources:
   - name: Prometheus
+    uid: prometheus
     type: prometheus
+    access: proxy
     url: http://prometheus:9090
     isDefault: true
+    editable: false
 EOF
-  gpw=$(ssm_get "$SSM_PREFIX/grafana/admin-password")
-  if [[ -z "$gpw" ]]; then
-    gpw=$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 20)
-    echo "$gpw" > /root/grafana-admin-password && chmod 600 /root/grafana-admin-password
-    echo "  Grafana 비밀번호를 생성해 /root/grafana-admin-password 에 저장함"
-  fi
+  cat > $base/grafana/provisioning/dashboards/durian.yml <<'EOF'
+apiVersion: 1
+providers:
+  - name: durian
+    folder: Infra
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /etc/grafana/dashboards
+EOF
+
   cat > $base/.env <<EOF
 TZ=${TZ_NAME}
-GF_SECURITY_ADMIN_PASSWORD=${gpw}
-PROMETHEUS_TAG=${PROMETHEUS_TAG:-latest}
-ALERTMANAGER_TAG=${ALERTMANAGER_TAG:-latest}
-GRAFANA_TAG=${GRAFANA_TAG:-latest}
+PROMETHEUS_TAG=${prom_tag}
+ALERTMANAGER_TAG=${am_tag}
+GRAFANA_TAG=${gf_tag}
 EOF
   chmod 600 $base/.env
   cat > $base/docker-compose.yml <<'EOF'
+name: monitoring
+x-hardening: &hardening
+  restart: unless-stopped
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
 services:
   prometheus:
+    <<: *hardening
     image: prom/prometheus:${PROMETHEUS_TAG}
-    restart: unless-stopped
+    container_name: prometheus
+    user: "65534:65534"
     environment: [TZ]
-    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    extra_hosts: ["host.docker.internal:host-gateway"]
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./rules:/etc/prometheus/rules:ro
       - ./targets:/etc/prometheus/targets:ro
       - prom-data:/prometheus
-    ports: ["9090:9090"]
+    ports: ["127.0.0.1:9090:9090"]
   alertmanager:
+    <<: *hardening
     image: prom/alertmanager:${ALERTMANAGER_TAG}
-    restart: unless-stopped
+    container_name: alertmanager
+    user: "65534:65534"
     environment: [TZ]
     volumes:
       - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-      - ./secrets:/etc/alertmanager/secrets:ro
+      - ./secrets/discord_webhook:/etc/alertmanager/secrets/discord_webhook:ro
       - am-data:/alertmanager
-    ports: ["9093:9093"]
+    ports: ["127.0.0.1:9093:9093"]
   grafana:
+    <<: *hardening
     image: grafana/grafana:${GRAFANA_TAG}
-    restart: unless-stopped
-    environment: [TZ, GF_SECURITY_ADMIN_PASSWORD]
+    container_name: grafana
+    user: "472:0"
+    environment:
+      TZ: ${TZ}
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_ALLOW_ORG_CREATE: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - ./secrets/grafana_admin_password:/run/secrets/grafana_admin_password:ro
       - grafana-data:/var/lib/grafana
-    ports: ["3000:3000"]
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on: [prometheus]
 volumes:
   prom-data:
   am-data:
   grafana-data:
 EOF
 
-  echo "[monitor 3/3] 기동"
-  (cd $base && docker compose up -d)
-  echo "Grafana http://${pip}:3000 (admin) / Prometheus :9090 / Alertmanager :9093"
+  echo "[monitor 4/6] Grafana 대시보드 1860 (Node Exporter Full, rev ${dash_rev}, SHA-256 검증)"
+  local raw="$base/grafana/cache/node-exporter-full-rev${dash_rev}.json"
+  if ! echo "${dash_sha}  ${raw}" | sha256sum -c --status 2>/dev/null; then
+    curl -fsSL --retry 3 "https://grafana.com/api/dashboards/1860/revisions/${dash_rev}/download" -o "${raw}.tmp"
+    if ! echo "${dash_sha}  ${raw}.tmp" | sha256sum -c --status; then
+      rm -f "${raw}.tmp"
+      echo "ERROR: 대시보드 1860 rev ${dash_rev} 해시 불일치 → 설치 중단" >&2
+      exit 1
+    fi
+    mv "${raw}.tmp" "$raw"
+  fi
+  # rev 46은 데이터 소스를 대시보드 변수(ds_prometheus, type=datasource)로 고르므로 치환 없이 그대로 쓴다.
+  # 변수 기본값이 비어 있어 기본 데이터 소스(isDefault: true인 Prometheus)가 자동 선택된다.
+  install -m 644 "$raw" $base/grafana/dashboards/node-exporter-full.json
+
+  echo "[monitor 5/6] 설정 검사 (promtool / amtool)"
+  docker run --rm --network none --entrypoint promtool \
+    -v $base/prometheus.yml:/etc/prometheus/prometheus.yml:ro -v $base/rules:/etc/prometheus/rules:ro \
+    "prom/prometheus:${prom_tag}" check config /etc/prometheus/prometheus.yml
+  docker run --rm --network none --entrypoint amtool \
+    -v $base/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro \
+    -v $base/secrets/discord_webhook:/etc/alertmanager/secrets/discord_webhook:ro \
+    "prom/alertmanager:${am_tag}" check-config /etc/alertmanager/alertmanager.yml
+
+  echo "[monitor 6/6] 기동 / 설정 반영"
+  (cd $base && docker compose up -d --remove-orphans)
+  for url in http://127.0.0.1:9090/-/ready http://127.0.0.1:9093/-/ready http://127.0.0.1:3000/api/health; do
+    n=0
+    until curl -sf -o /dev/null "$url"; do
+      sleep 2; n=$((n+1))
+      (( n > 90 )) && { echo "ERROR: $url 응답 없음. 확인: docker compose -f $base/docker-compose.yml logs" >&2; exit 1; }
+    done
+  done
+  # 재실행 시 바뀐 설정 반영 (컨테이너는 그대로, 설정만 다시 읽음)
+  # 주의: 'docker kill -s HUP'은 Docker가 컨테이너를 "수동 중지"로 표시해서, 재부팅 뒤
+  # restart: unless-stopped 컨테이너가 다시 올라오지 않는다. 그래서 컨테이너 안에서 PID 1에 HUP을 보낸다.
+  docker exec prometheus kill -HUP 1
+  docker exec alertmanager kill -HUP 1
+  # 관리자 비밀번호를 SSM 값과 맞춘다 (최초 설치 후 SSM 값을 바꾼 경우)
+  docker exec grafana sh -c 'grafana cli admin reset-admin-password --password-from-stdin < /run/secrets/grafana_admin_password' >/dev/null 2>&1 \
+    || echo "  WARN: Grafana 관리자 비밀번호 동기화 실패. 확인: docker logs grafana"
+
+  echo "접속: 노트북 PowerShell에서 SSM 포트 포워딩 (포트를 외부에 열지 않음)"
+  echo "  aws ssm start-session --target $(imds instance-id) --document-name AWS-StartPortForwardingSession --parameters 'portNumber=3000,localPortNumber=3000'"
+  echo "  Grafana http://localhost:3000 (admin, 비밀번호는 $SSM_PREFIX/grafana/admin-password) / 9090 Prometheus / 9093 Alertmanager"
 }
 
 ### ---------- 실행 ----------
