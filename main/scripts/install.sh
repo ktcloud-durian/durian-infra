@@ -208,7 +208,7 @@ worker() {
 # Prometheus + Alertmanager + Grafana (Docker Compose, /opt/monitoring). 재실행 가능.
 # - 3000/9090/9093은 127.0.0.1에만 바인딩. 접속은 SSM 포트 포워딩 (NET-06)
 # - 웹훅/Grafana 비밀번호는 SSM SecureString에서 읽어 secrets/ 파일로만 전달. 화면/로그 출력 금지 (SEC-01·05)
-# - 설정 반영은 docker kill -s HUP (--web.enable-lifecycle 사용 안 함)
+# - 설정 반영은 HUP 신호: docker exec prometheus kill -HUP 1 (--web.enable-lifecycle 사용 안 함)
 # - 수집: Node Exporter만 (AWS=ec2_sd_configs 태그 필터, 온프렘=targets/onprem.json)
 # 변수: NODE_TAG_KEY(기본 Role) NODE_TAG_VALUES(기본 master,worker, 쉼표 구분)
 #       PROMETHEUS_TAG / ALERTMANAGER_TAG / GRAFANA_TAG / DASH_NODE_FULL_REV / DASH_NODE_FULL_SHA256
@@ -242,7 +242,7 @@ monitor() {
   systemctl enable --now docker
 
   echo "[monitor 3/6] 설정 파일 생성 ($base)"
-  mkdir -p $base/{targets,rules,secrets,grafana/provisioning/datasources,grafana/provisioning/dashboards,grafana/dashboards,grafana/cache}
+  mkdir -p $base/{targets,rules,secrets,grafana/provisioning/datasources,grafana/provisioning/dashboards,grafana/provisioning/plugins,grafana/provisioning/alerting,grafana/dashboards,grafana/cache}
   chmod 700 $base/secrets
   rm -f $base/targets/node-*.json $base/targets/ksm-*.json   # 이전 버전(고정 IP, kube-state-metrics) 파일 정리
 
@@ -483,7 +483,10 @@ EOF
     done
   done
   # 재실행 시 바뀐 설정 반영 (컨테이너는 그대로, 설정만 다시 읽음)
-  docker kill -s HUP prometheus alertmanager >/dev/null
+  # 주의: 'docker kill -s HUP'은 Docker가 컨테이너를 "수동 중지"로 표시해서, 재부팅 뒤
+  # restart: unless-stopped 컨테이너가 다시 올라오지 않는다. 그래서 컨테이너 안에서 PID 1에 HUP을 보낸다.
+  docker exec prometheus kill -HUP 1
+  docker exec alertmanager kill -HUP 1
   # 관리자 비밀번호를 SSM 값과 맞춘다 (최초 설치 후 SSM 값을 바꾼 경우)
   docker exec grafana sh -c 'grafana cli admin reset-admin-password --password-from-stdin < /run/secrets/grafana_admin_password' >/dev/null 2>&1 \
     || echo "  WARN: Grafana 관리자 비밀번호 동기화 실패. 확인: docker logs grafana"
