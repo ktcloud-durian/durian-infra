@@ -35,6 +35,17 @@ env:
   TF_INPUT: "false"
   AWS_REGION: ap-northeast-2
   TF_DIR: main
+  TF_VAR_nat_enabled: ${{ vars.TF_VAR_nat_enabled }}
+  TF_VAR_aws_k3s_enabled: ${{ vars.TF_VAR_aws_k3s_enabled }}
+  TF_VAR_aws_k3s_network_approved: ${{ vars.TF_VAR_aws_k3s_network_approved }}
+  TF_VAR_aws_k3s_bootstrap_approved: ${{ vars.TF_VAR_aws_k3s_bootstrap_approved }}
+  TF_VAR_aws_k3s_version: ${{ vars.TF_VAR_aws_k3s_version }}
+  TF_VAR_aws_k3s_argocd_chart_version: ${{ vars.TF_VAR_aws_k3s_argocd_chart_version }}
+  TF_VAR_aws_k3s_image_registry: ${{ vars.TF_VAR_aws_k3s_image_registry }}
+  TF_VAR_monitor_enabled: ${{ vars.TF_VAR_monitor_enabled }}
+  TF_VAR_monitor_instance_type: ${{ vars.TF_VAR_monitor_instance_type }}
+  TF_VAR_aws_alb_enabled: ${{ vars.TF_VAR_aws_alb_enabled }}
+  TF_VAR_default_sg_extra_vpc_ids: ${{ vars.TF_VAR_default_sg_extra_vpc_ids }}
 
 jobs:
   plan:

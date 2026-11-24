@@ -1,19 +1,19 @@
 # DURIAN Monitor EC2 — minimal first-stage provisioning.
 # Put this file in durian-infra/main/ as monitor-ec2.tf.
-# Creates ONE private t3.small and an SSM-only instance profile.
+# Creates ONE private m7i-flex.large and an SSM-only instance profile.
 # Reuses existing subnet, mgmt SG, NAT routing; no monitoring stack installation.
 # SecurityOps should approve any additional CloudWatch/SSM secret policies separately.
 
 variable "monitor_enabled" {
-  description = "Opt-in: deploy one monitor EC2 in private-mon-a"
+  description = "Opt-in: deploy one monitor EC2 in existing private_mon[a] subnet (AZ 2a)"
   type        = bool
   default     = false
 }
 
 variable "monitor_instance_type" {
-  description = "Monitor EC2 type: 2 vCPU, 4 GiB"
+  description = "Monitor EC2 type: 2 vCPU, 8 GiB"
   type        = string
-  default     = "c7i-flex.large"
+  default     = "m7i-flex.large"
 }
 
 variable "monitor_volume_gb" {
@@ -44,7 +44,7 @@ resource "aws_iam_role_policy_attachment" "monitor_ssm" {
 locals {
   monitor_ssm_parameter_arns = [
     for p in [
-      "/durian/discord/webhook",
+      "/durian/ops/discord-webhook",
       "/durian/grafana/admin-password",
       "/durian/tailscale/aws-monitor",
       "/durian/k3s/a/master-ip",
@@ -146,7 +146,7 @@ resource "aws_instance" "monitor" {
 
   ami                         = data.aws_ssm_parameter.ubuntu.value
   instance_type               = var.monitor_instance_type
-  subnet_id                   = aws_subnet.monitor_b[0].id
+  subnet_id                   = aws_subnet.private_mon["a"].id
   associate_public_ip_address = false
   vpc_security_group_ids      = [aws_security_group.role["mgmt"].id]
   iam_instance_profile        = aws_iam_instance_profile.monitor[0].name
@@ -155,7 +155,8 @@ resource "aws_instance" "monitor" {
   # exposes 3000/9090/9093 on all interfaces and uses latest image tags.
   # Approved hardened Docker Compose setup is installed later by Ops.
   metadata_options {
-    http_tokens = "required"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
   }
 
   root_block_device {
@@ -165,24 +166,24 @@ resource "aws_instance" "monitor" {
     delete_on_termination = true
   }
 
-  # Avoid T3 Unlimited surplus CPU credit charges; throttling is possible.
+  # M7i-flex does not require T3 CPU credit settings.
 
   lifecycle {
     precondition {
       condition     = var.nat_enabled
-      error_message = "Monitor needs approved NAT routing to private-mon-a."
+      error_message = "Monitor requires approved NAT routing for the existing AZ 2a monitoring subnet."
     }
   }
 
   depends_on = [
     aws_iam_role_policy_attachment.monitor_ssm,
     aws_iam_role_policy.monitor_readonly,
-    aws_route.private_nat,
-    aws_ssm_association.monitor_b_nat_rules
+    aws_route.private_nat
+
   ]
 
   tags = {
-    Name = "durian-monitor-b"
+    Name = "durian-monitor-a"
     Role = "monitor"
     Site = "aws"
     Tier = "mgmt"
