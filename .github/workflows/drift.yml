@@ -1,0 +1,120 @@
+name: Drift
+# 주 1회 main 코드와 실제 AWS를 비교 (plan만, 바꾸지 않음). 보안 기준서 PIP-04·SRV, 실행 계획서 [CI/CD] drift 감지
+# 다르면 이슈 하나를 열거나 고쳐 씀: 콘솔에서 직접 바꾼 것(drift) 또는 병합됐지만 아직 apply 안 된 것
+# 공개 저장소라 plan 전문은 남기지 않고 요약 + 리소스 주소만 (계정 ID 12자리는 가림)
+
+on:
+  schedule:
+    - cron: "17 0 * * 5"   # 매주 금요일 09:17 KST (정각 혼잡 피함)
+  workflow_dispatch:
+
+concurrency:
+  group: terraform-refs/heads/main   # terraform.yml의 main apply와 겹치지 않게 같은 그룹
+  cancel-in-progress: false
+
+permissions:
+  id-token: write   # OIDC → 읽기 전용 plan 역할 (main 브랜치만 허용)
+  contents: read
+  issues: write     # drift 이슈
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  AWS_REGION: ap-northeast-2
+  TF_DIR: main
+  TF_VAR_nat_enabled: ${{ vars.TF_VAR_nat_enabled }}
+  TF_VAR_aws_k3s_enabled: ${{ vars.TF_VAR_aws_k3s_enabled }}
+  TF_VAR_aws_k3s_network_approved: ${{ vars.TF_VAR_aws_k3s_network_approved }}
+  TF_VAR_aws_k3s_bootstrap_approved: ${{ vars.TF_VAR_aws_k3s_bootstrap_approved }}
+  TF_VAR_aws_k3s_version: ${{ vars.TF_VAR_aws_k3s_version }}
+  TF_VAR_aws_k3s_argocd_chart_version: ${{ vars.TF_VAR_aws_k3s_argocd_chart_version }}
+  TF_VAR_aws_k3s_image_registry: ${{ vars.TF_VAR_aws_k3s_image_registry }}
+  TF_VAR_monitor_enabled: ${{ vars.TF_VAR_monitor_enabled }}
+  TF_VAR_monitor_instance_type: ${{ vars.TF_VAR_monitor_instance_type }}
+  TF_VAR_aws_alb_enabled: ${{ vars.TF_VAR_aws_alb_enabled }}
+  TF_VAR_default_sg_extra_vpc_ids: ${{ vars.TF_VAR_default_sg_extra_vpc_ids }}
+  TF_VAR_global_detection_enabled: ${{ vars.TF_VAR_global_detection_enabled }}
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: "~> 1.11.0"
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: mask account id
+        run: echo "::add-mask::$(aws sts get-caller-identity --query Account --output text)"
+
+      - name: init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ env.AWS_REGION }}"
+
+      - name: plan (변경 없음 = 0, 다름 = 2, 오류 = 1)
+        id: plan
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          set +e
+          terraform plan -lock=false -no-color -detailed-exitcode > plan.log 2>&1
+          code=$?
+          echo "exitcode=$code" >> "$GITHUB_OUTPUT"
+          {
+            if [ "$code" -eq 0 ]; then
+              echo "코드와 실제 AWS가 같아요."
+            elif [ "$code" -eq 2 ]; then
+              grep -E '^Plan:' plan.log | tail -1
+              echo
+              echo '```'
+              grep -E '^  # .+ (will be|must be) ' plan.log | sed -E 's/^  # //'
+              echo '```'
+            else
+              echo "plan 오류. 오류 부분만 표시"
+              echo '```'
+              { grep -E -A4 '^(│ )?Error' plan.log || tail -20 plan.log; } | tail -60
+              echo '```'
+            fi
+          } | sed -E 's/[0-9]{12}/************/g' > drift.md
+          cat drift.md >> "$GITHUB_STEP_SUMMARY"
+          rm -f plan.log
+          if [ "$code" -eq 1 ]; then exit 1; fi
+
+      - name: drift 이슈 열기·고치기·닫기
+        if: always() && steps.plan.outputs.exitcode != ''
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        env:
+          CODE: ${{ steps.plan.outputs.exitcode }}
+        with:
+          script: |
+            const fs = require('fs');
+            const code = process.env.CODE;
+            const p = `${process.env.TF_DIR}/drift.md`;
+            const summary = fs.existsSync(p) ? fs.readFileSync(p, 'utf8').trim() : '(결과 없음)';
+            const { owner, repo } = context.repo;
+            const title = 'Terraform drift: 코드와 실제 AWS가 다름';
+            const open = (await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', labels: 'drift' }))[0];
+            const run = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            if (code === '0') {
+              if (open) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: open.number, body: `다시 같아짐 (${run})` });
+                await github.rest.issues.update({ owner, repo, issue_number: open.number, state: 'closed', state_reason: 'completed' });
+              }
+              return;
+            }
+            const body = [
+              `실행: ${run}`, '',
+              '- 콘솔에서 직접 바꾼 것(drift)이면: 코드로 되돌리거나(apply) 코드에 반영하는 PR',
+              '- 병합됐지만 apply 전인 것이면: 인프라 담당 apply',
+              '- 판단이 어려우면 보안 담당에게 (사고 대응 절차서 3·4장)', '',
+              summary,
+            ].join('\n');
+            if (open) await github.rest.issues.update({ owner, repo, issue_number: open.number, body });
+            else await github.rest.issues.create({ owner, repo, title, body, labels: ['drift'] });
