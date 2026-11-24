@@ -209,7 +209,23 @@ worker() {
 # - 3000/9090/9093은 127.0.0.1에만 바인딩. 접속은 SSM 포트 포워딩 (NET-06)
 # - 웹훅/Grafana 비밀번호는 SSM SecureString에서 읽어 secrets/ 파일로만 전달. 화면/로그 출력 금지 (SEC-01·05)
 # - 설정 반영은 HUP 신호: docker exec prometheus kill -HUP 1 (--web.enable-lifecycle 사용 안 함)
-# - 수집: Node Exporter만 (AWS=ec2_sd_configs 태그 필터, 온프렘=targets/onprem.json)
+# - 수집: Node Exporter만 (AWS=ec2_sd_configs 태그 필터, 온프렘=targets/onprem.json, 둘 다 tcp:9100만)
+#
+# Monitor EC2 전제 조건 (EC2 설정은 AWS 인프라 담당 Terraform이 만든다. 이 스크립트는 바꾸지 않고 확인만 한다)
+# - IMDSv2 required + hop limit 2 이상:
+#     Prometheus는 Docker 컨테이너(bridge 네트워크) 안에서 ec2_sd_configs로 EC2 API를 부른다.
+#     Access Key를 쓰지 않고 인스턴스 역할 자격 증명을 IMDS(169.254.169.254)에서 받는데,
+#     컨테이너 → docker0 → 호스트를 거치며 IP 패킷의 홉이 하나 늘어난다.
+#     hop limit 1이면 IMDSv2 토큰 응답이 컨테이너까지 오지 못해 자격 증명을 못 받고,
+#     node-aws 대상이 0개가 된다 (Prometheus 로그에 ec2 discovery 오류).
+#     설치 시작 때 이 값을 읽어 2 미만이면 WARN만 출력하고 설치는 계속한다.
+# - 인스턴스 역할 권한:
+#     필수: ec2:DescribeInstances (ec2_sd 노드 발견, 설치 시 hop limit 확인)
+#     선택: ec2:DescribeAvailabilityZones (AZ ID 라벨 __meta_ec2_availability_zone_id용, 팀 역할에는 없음)
+#     필수: ssm:GetParameter (SSM_PREFIX/grafana/admin-password, SSM_PREFIX/ops/discord-webhook)
+#     필수: SSM 접속 (AmazonSSMManagedInstanceCore)
+# - 보안그룹: 인바운드 0개. 아웃바운드 443(SSM·EC2 API·Docker Hub·grafana.com), 80(apt), 노드 SG로 9100
+#
 # 변수: NODE_TAG_KEY(기본 Role) NODE_TAG_VALUES(기본 master,worker, 쉼표 구분)
 #       PROMETHEUS_TAG / ALERTMANAGER_TAG / GRAFANA_TAG / DASH_NODE_FULL_REV / DASH_NODE_FULL_SHA256
 monitor() {
@@ -218,16 +234,31 @@ monitor() {
   local tag_key="${NODE_TAG_KEY:-Role}" tag_values="${NODE_TAG_VALUES:-master,worker}"
   local dash_rev="${DASH_NODE_FULL_REV:-46}"
   local dash_sha="${DASH_NODE_FULL_SHA256:-e58ddc5dc535d4c901f94da9648bc3e3d5ae7b6f78e98e185bce8b289961cea3}"
-  local dw gpw tagvals v url n re='[^A-Za-z0-9,._:/+=@-]'
+  local dw gpw tagvals v url n iid hop re='[^A-Za-z0-9,._:/+=@-]'
   local -a vals
 
-  echo "[monitor 1/6] 사전 확인 (SSM 비밀값, 변수)"
+  echo "[monitor 1/6] 사전 확인 (IMDS hop limit, SSM 비밀값, 변수)"
+  # hop limit 확인 (위 '전제 조건' 참고). 실패하거나 2 미만이면 경고만 하고 계속한다.
+  iid=$(imds instance-id)
+  hop=""
+  [[ -n "$iid" ]] && hop=$(aws ec2 describe-instances --instance-ids "$iid" \
+    --query 'Reservations[0].Instances[0].MetadataOptions.HttpPutResponseHopLimit' --output text 2>/dev/null || true)
+  if [[ "$hop" =~ ^[0-9]+$ ]]; then
+    if (( hop < 2 )); then
+      echo "  WARN: IMDS hop limit=$hop (2 이상 필요). Prometheus 컨테이너가 EC2 자동 발견을 못 해 AWS 노드가 수집되지 않음"
+      echo "        → AWS 인프라 담당에게 Monitor EC2의 http_put_response_hop_limit=2 요청 (설치는 계속)"
+    else
+      echo "  IMDS hop limit=$hop (OK)"
+    fi
+  else
+    echo "  WARN: IMDS hop limit 확인 불가 (IMDS 응답 없음 또는 ec2:DescribeInstances 권한 없음). 설치는 계속"
+  fi
   gpw=$(ssm_get "$SSM_PREFIX/grafana/admin-password")
   if [[ -z "$gpw" ]]; then
     echo "ERROR: Grafana 비밀번호($SSM_PREFIX/grafana/admin-password)가 SSM에 없거나 읽을 권한 없음 → 설치 중단" >&2
     exit 1
   fi
-  dw=$(ssm_get "$SSM_PREFIX/discord/webhook")
+  dw=$(ssm_get "$SSM_PREFIX/ops/discord-webhook")   # 팀: /durian/ops/discord-webhook (ops-alerts 채널)
   if [[ "$tag_key$tag_values" =~ $re ]]; then
     echo "ERROR: NODE_TAG_KEY/NODE_TAG_VALUES에 허용되지 않는 문자 (영문, 숫자, , . _ : / + = @ - 만)" >&2
     exit 1
@@ -265,7 +296,7 @@ scrape_configs:
     static_configs:
       - targets: ['host.docker.internal:9100']
         labels: { site: aws, name: ${NODE_NAME} }
-  # AWS 노드: EC2 태그로 자동 발견 (인스턴스 역할 + IMDSv2 hop limit 2 필요)
+  # AWS 노드: EC2 태그로 자동 발견, 포트는 9100 고정 (인스턴스 역할 + IMDSv2 hop limit 2 필요: 함수 위 '전제 조건')
   - job_name: node-aws
     ec2_sd_configs:
       - region: ${AWS_REGION}
@@ -288,6 +319,10 @@ scrape_configs:
     file_sd_configs:
       - files: ['/etc/prometheus/targets/onprem.json']
     relabel_configs:
+      # 허용 포트 목록 7.2: Monitor → 온프렘은 tcp:9100만. 다른 포트가 적힌 대상은 수집하지 않고 버린다
+      - source_labels: [__address__]
+        regex: '.+:9100'
+        action: keep
       - target_label: site
         replacement: onprem
 EOF
@@ -342,7 +377,7 @@ receivers:
         send_resolved: true
 EOF
   else
-    echo "  Discord 웹훅($SSM_PREFIX/discord/webhook) 없음 → 알림 전송 없이 설치"
+    echo "  Discord 웹훅($SSM_PREFIX/ops/discord-webhook) 없음 → 알림 전송 없이 설치"
     printf 'route:\n  receiver: none\nreceivers:\n  - name: none\n' > $base/alertmanager.yml
   fi
   unset gpw dw
