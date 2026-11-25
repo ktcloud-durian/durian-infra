@@ -499,26 +499,7 @@ EOF
   # 변수 기본값이 비어 있어 기본 데이터 소스(isDefault: true인 Prometheus)가 자동 선택된다.
   install -m 644 "$raw" $base/grafana/dashboards/node-exporter-full.json
 
-  # 보안 관제 줄 (보안 담당, LOG-05·06·07): CloudWatch(서울) sec-responder 로그·Lambda 지표·durian/CIS 지표
-  # 액세스 키 없이 Monitor EC2 역할로 읽음 (monitor-ec2.tf의 Durian-Monitor-ReadOnly 정책, hop limit 2)
-  cat > $base/grafana/provisioning/datasources/cloudwatch.yml <<'EOF'
-apiVersion: 1
-datasources:
-  - name: CloudWatch
-    uid: cloudwatch
-    type: cloudwatch
-    editable: false
-    jsonData:
-      authType: default
-      defaultRegion: ap-northeast-2
-EOF
-  local sec_dash
-  sec_dash="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/monitoring/security-dashboard.json"
-  if [[ -f "$sec_dash" ]]; then
-    install -m 644 "$sec_dash" $base/grafana/dashboards/security-dashboard.json
-  else
-    echo "  WARN: 보안 대시보드 파일 없음 ($sec_dash). 저장소를 받은 폴더에서 실행해야 함 (설치는 계속)"
-  fi
+  bash "${BASH_SOURCE%/*}/monitoring/security-dashboard.sh" $base || true # LOG-05~07
 
   echo "[monitor 5/6] 설정 검사 (promtool / amtool)"
   docker run --rm --network none --entrypoint promtool \
