@@ -43,8 +43,8 @@ data "aws_iam_policy_document" "sec_responder" {
     resources = ["arn:${data.aws_partition.current.partition}:ssm:${var.region}:${data.aws_caller_identity.me.account_id}:parameter${var.security_webhook_param}"]
   }
   statement {
-    sid       = "WriteOwnLogs"
-    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+    sid     = "WriteOwnLogs"
+    actions = ["logs:CreateLogStream", "logs:PutLogEvents"]
     resources = concat(
       ["${aws_cloudwatch_log_group.sec_responder.arn}:*"],
       [for lg in aws_cloudwatch_log_group.sec_responder_use1 : "${lg.arn}:*"] # us-east-1 Lambda (detection_global.tf)
