@@ -103,6 +103,38 @@ resource "aws_iam_role_policy" "monitor_readonly" {
         Resource = "arn:aws:logs:${var.region}:${data.aws_caller_identity.me.account_id}:log-group:/aws/lambda/*"
       },
       {
+        # 보안 점검기 (main/scripts/security-check, 보안 기준서 8.1). 조회만, 바꾸는 권한 없음
+        Sid    = "SecurityCheckReadOnly"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeSecurityGroupRules",
+          "ec2:DescribeImages",
+          "ec2:DescribeSnapshots",
+          "ec2:GetEbsEncryptionByDefault",
+          "elasticloadbalancing:DescribeLoadBalancers",
+          "elasticloadbalancing:DescribeListeners",
+          "iam:GetAccountPasswordPolicy",
+          "iam:ListEntitiesForPolicy",
+          "iam:ListRoles",
+          "iam:GenerateCredentialReport",
+          "iam:GetCredentialReport",
+          "s3:GetAccountPublicAccessBlock",
+          "cloudtrail:GetTrailStatus",
+          "ecr:DescribeRepositories",
+          "events:ListRules",
+          "guardduty:ListDetectors",
+          "guardduty:GetDetector"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid      = "SecurityCheckStateBucketVersioning"
+        Effect   = "Allow"
+        Action   = ["s3:GetBucketVersioning"]
+        Resource = "arn:aws:s3:::${var.name}-tfstate-${data.aws_caller_identity.me.account_id}"
+      },
+      {
         Sid    = "AllowMonitorSSMParameters"
         Effect = "Allow"
         Action = [
