@@ -6,6 +6,7 @@
 2) CloudTrail 무력화(StopLogging 등), IAM 권한 부여·키 생성, 루트 로그인은 알림만 (LOG-05·07)
    IAM·로그인은 us-east-1에만 기록되므로 같은 코드를 us-east-1에도 배포함 (detection_global.tf)
 3) GuardDuty 탐지(심각도 4 이상)는 알림만. 지금 계정은 GuardDuty 미지원(EX-10)이라 들어오지 않음
+4) CIS 경보(5.x)가 ALARM이 되면 알림만. 실시간 규칙과 겹치는 5.3·5.4·5.5·5.10은 detection_cis.tf에서 뺌
 모드: MODE=notify(알림만, 기본) | revoke(실제 삭제). 예외: EXCEPTIONS (코드·Terraform으로만 바뀜, 태그는 근거로 안 씀)
 웹훅 URL은 코드·환경 변수에 두지 않고 SSM SecureString(WEBHOOK_PARAM)에서 읽음 (SEC-01·05)
 """
@@ -114,8 +115,24 @@ def audit(event, notify, kind):
     return {'revoked': []}
 
 
+def cis_alarm(event, notify):
+    """CloudWatch 경보 상태 변경 → 어떤 CIS 경보가 왜 울렸는지만 알림 (지표 값만 있고 비밀값은 없음)"""
+    d = event.get('detail', {})
+    st = d.get('state') or {}
+    notify({k: v for k, v in {
+        'type': 'cis-alarm',
+        'alarm': d.get('alarmName'),
+        'state': st.get('value'),
+        'reason': (st.get('reason') or '')[:200],
+        'time': event.get('time'),
+    }.items() if v})
+    return {'revoked': []}
+
+
 def handler(event, context=None, ec2=None, notify=None):
     notify = notify or _discord
+    if event.get('source') == 'aws.cloudwatch' and event.get('detail-type') == 'CloudWatch Alarm State Change':
+        return cis_alarm(event, notify)
     if event.get('source') == 'aws.guardduty':
         return guardduty(event, notify)
     if event.get('source') in AUDIT_SOURCES:
