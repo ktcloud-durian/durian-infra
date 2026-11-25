@@ -17,6 +17,14 @@ resource "aws_instance" "k3s_master" {
   user_data_base64            = base64encode(local.k3s_master_user_data[each.key])
   user_data_replace_on_change = true
 
+  # Preserve existing K3s control-plane state.
+  lifecycle {
+    ignore_changes = [
+      ami,
+      user_data_base64
+    ]
+  }
+
   metadata_options {
     http_tokens = "required"
   }

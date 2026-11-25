@@ -50,6 +50,11 @@ resource "aws_instance" "nat" {
 
   user_data_replace_on_change = true
 
+  # Prevent unplanned replacement from AMI updates.
+  lifecycle {
+    ignore_changes = [ami]
+  }
+
   tags = {
     Name = "durian-nat-${each.key}"
     Role = "nat"
