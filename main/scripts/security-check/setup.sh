@@ -17,7 +17,7 @@ command -v aws >/dev/null || { echo "ERROR: aws 명령 없음. install.sh ROLE=m
 
 echo "[2/5] 스크립트·설정·결과 폴더"
 install -d -m 755 "$DST"
-install -m 755 "$SRC"/lib.sh "$SRC"/aws.sh "$SRC"/openstack.sh "$SRC"/run.sh "$DST"/
+install -m 755 "$SRC"/lib.sh "$SRC"/aws.sh "$SRC"/openstack.sh "$SRC"/run.sh "$SRC"/os-baseline.sh "$DST"/
 install -d -m 700 "$ETC" /var/lib/durian-check /var/lib/durian-check/results
 [[ -f "$ETC/config.env" ]] || install -m 600 "$SRC/config.env.example" "$ETC/config.env"
 [[ -f "$ETC/clouds.yaml" ]] && chmod 600 "$ETC/clouds.yaml"
@@ -103,4 +103,4 @@ if curl -sf -m 5 http://127.0.0.1:9100/metrics | grep -q '^durian_check_last_run
 else
   echo "WARN: node_exporter(9100)에서 durian_check 메트릭이 안 보임. textfile 폴더 설정 확인: cat /etc/default/prometheus-node-exporter"
 fi
-echo "다음: $ETC/config.env 명단 채우기, OpenStack은 $ETC/clouds.yaml (chmod 600) 넣기 → sudo systemctl start durian-check"
+echo "다음: $ETC/config.env 명단 채우기, OpenStack은 $ETC/clouds.yaml (chmod 600) 넣기 → sudo bash $DST/os-baseline.sh --show a (정의서와 비교) → sudo bash $DST/os-baseline.sh a → sudo systemctl start durian-check"
