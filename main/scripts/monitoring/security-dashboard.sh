@@ -21,3 +21,6 @@ datasources:
 YML
 install -m 644 "$here/security-dashboard.json" "$base/grafana/dashboards/security-dashboard.json"
 echo "  보안 관제 대시보드·CloudWatch 데이터 소스 설정 완료"
+
+# Grafana reload datasource provisioning
+docker restart grafana 2>/dev/null && echo "[LOG-07] Grafana restarted for CloudWatch datasource" || echo "[WARN] Grafana restart failed" >&2
