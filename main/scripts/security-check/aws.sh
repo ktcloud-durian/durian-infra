@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # AWS 보안 점검 (보안 기준서 8.1 점검표). 조회 전용. Monitor EC2의 인스턴스 역할 권한으로 실행.
 # 사용: OUT=결과폴더 [NAME=durian] [REGION=ap-northeast-2] [ADMINS="관리자 이름들"] [KEY_USERS="키 허용 사용자"] \
-#       [STATE_BUCKET=버킷] [GLOBAL=true] bash aws.sh
+#       [STATE_BUCKET=버킷] [GLOBAL=true] [GUARDDUTY=true] bash aws.sh
 # 자동으로 못 보는 항목(1~6·13·16~18·23·24·27)은 보안 기준서대로 직접 확인함.
 set -uo pipefail
 export CLOUD_NAME=aws
@@ -172,8 +172,12 @@ else
   done
   judge 25a LOG-05·06 "$m"
 fi
-det=$(q guardduty list-detectors --query 'DetectorIds[0]' --output text)
-if [[ "$det" == __ERR__ ]]; then judge 25b LOG-05 __ERR__
+if [[ "${GUARDDUTY:-false}" != true ]]; then
+  # GuardDuty는 계정에서 쓸 수 없어 CloudTrail + EventBridge 탐지로 대신함 (예외 EX-10). 25a·25d가 그 탐지를 점검
+  det=SKIP; result 25b LOG-05 SKIP "GuardDuty 안 씀 (예외 EX-10). 켜면 GUARDDUTY=true로 점검"
+else det=$(q guardduty list-detectors --query 'DetectorIds[0]' --output text); fi
+if [[ "$det" == SKIP ]]; then :
+elif [[ "$det" == __ERR__ ]]; then judge 25b LOG-05 __ERR__
 elif [[ -z "$det" || "$det" == None ]]; then result 25b LOG-05 FAIL "GuardDuty 탐지기 없음"
 else st=$(q guardduty get-detector --detector-id "$det" --query Status --output text)
      [[ "$st" == ENABLED ]] && st=""; judge 25b LOG-05 "${st:+Status=$st}"; fi
