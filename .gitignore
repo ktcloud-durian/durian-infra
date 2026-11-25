@@ -10,3 +10,5 @@ backend.hcl
 *.pem
 *.key
 .build/
+__pycache__/
+*.pyc
