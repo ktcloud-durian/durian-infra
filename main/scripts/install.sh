@@ -226,11 +226,35 @@ worker() {
 #     필수: SSM 접속 (AmazonSSMManagedInstanceCore)
 # - 보안그룹: 인바운드 0개. 아웃바운드 443(SSM·EC2 API·Docker Hub·grafana.com), 80(apt), 노드 SG로 9100
 #
+# 컨테이너 이미지는 "이미지:태그@sha256:digest"로 고정한다 (태그는 읽기 쉽게 남겨 둔 표시일 뿐)
+# - Docker는 태그와 digest가 같이 있으면 digest만 보고 받는다. 태그만 바꾸고 digest를 그대로 두면
+#   경고 없이 이전 버전이 받아진다. 태그를 바꿀 때는 반드시 digest도 같이 바꾼다 (기본값·변수 모두)
+# - digest는 여러 아키텍처 목록(index) digest를 쓴다. 확인 명령 (맨 위 Digest 값):
+#     docker buildx imagetools inspect prom/prometheus:v3.5.0
+#     docker buildx imagetools inspect prom/alertmanager:v0.28.1
+#     docker buildx imagetools inspect grafana/grafana:12.0.2
+#   buildx가 없으면 레지스트리에 HEAD /v2/<저장소>/manifests/<태그> 요청 (Accept: manifest list / OCI index)을
+#   보내 응답 헤더 Docker-Content-Digest 값을 쓴다
+# - 변수에는 "sha256:" 뒤의 64자리만 넣는다 (앞에 sha256:을 붙여도 떼어 내고, 형식이 틀리면 설치 중단)
+#
 # 변수: NODE_TAG_KEY(기본 Role) NODE_TAG_VALUES(기본 master,worker, 쉼표 구분)
-#       PROMETHEUS_TAG / ALERTMANAGER_TAG / GRAFANA_TAG / DASH_NODE_FULL_REV / DASH_NODE_FULL_SHA256
+#       PROMETHEUS_TAG / ALERTMANAGER_TAG / GRAFANA_TAG
+#       PROMETHEUS_DIGEST / ALERTMANAGER_DIGEST / GRAFANA_DIGEST (태그와 짝으로 바꿈)
+#       DASH_NODE_FULL_REV / DASH_NODE_FULL_SHA256
 monitor() {
   local base=/opt/monitoring
   local prom_tag="${PROMETHEUS_TAG:-v3.5.0}" am_tag="${ALERTMANAGER_TAG:-v0.28.1}" gf_tag="${GRAFANA_TAG:-12.0.2}"
+  local prom_dig="${PROMETHEUS_DIGEST:-63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996}"
+  local am_dig="${ALERTMANAGER_DIGEST:-27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba}"
+  local gf_dig="${GRAFANA_DIGEST:-b5b59bfc7561634c2d7b136c4543d702ebcc94a3da477f21ff26f89ffd4214fa}"
+  local d
+  prom_dig="${prom_dig#sha256:}"; am_dig="${am_dig#sha256:}"; gf_dig="${gf_dig#sha256:}"
+  for d in "$prom_dig" "$am_dig" "$gf_dig"; do
+    if [[ ! "$d" =~ ^[0-9a-f]{64}$ ]]; then
+      echo "ERROR: 이미지 digest 형식 오류 (sha256 64자리 16진수여야 함): $d" >&2
+      exit 1
+    fi
+  done
   local tag_key="${NODE_TAG_KEY:-Role}" tag_values="${NODE_TAG_VALUES:-master,worker}"
   local dash_rev="${DASH_NODE_FULL_REV:-46}"
   local dash_sha="${DASH_NODE_FULL_SHA256:-e58ddc5dc535d4c901f94da9648bc3e3d5ae7b6f78e98e185bce8b289961cea3}"
@@ -414,6 +438,9 @@ TZ=${TZ_NAME}
 PROMETHEUS_TAG=${prom_tag}
 ALERTMANAGER_TAG=${am_tag}
 GRAFANA_TAG=${gf_tag}
+PROMETHEUS_DIGEST=${prom_dig}
+ALERTMANAGER_DIGEST=${am_dig}
+GRAFANA_DIGEST=${gf_dig}
 EOF
   chmod 600 $base/.env
   cat > $base/docker-compose.yml <<'EOF'
@@ -428,7 +455,7 @@ x-hardening: &hardening
 services:
   prometheus:
     <<: *hardening
-    image: prom/prometheus:${PROMETHEUS_TAG}
+    image: prom/prometheus:${PROMETHEUS_TAG}@sha256:${PROMETHEUS_DIGEST}
     container_name: prometheus
     user: "65534:65534"
     environment: [TZ]
@@ -445,7 +472,7 @@ services:
     ports: ["127.0.0.1:9090:9090"]
   alertmanager:
     <<: *hardening
-    image: prom/alertmanager:${ALERTMANAGER_TAG}
+    image: prom/alertmanager:${ALERTMANAGER_TAG}@sha256:${ALERTMANAGER_DIGEST}
     container_name: alertmanager
     user: "65534:65534"
     environment: [TZ]
@@ -456,7 +483,7 @@ services:
     ports: ["127.0.0.1:9093:9093"]
   grafana:
     <<: *hardening
-    image: grafana/grafana:${GRAFANA_TAG}
+    image: grafana/grafana:${GRAFANA_TAG}@sha256:${GRAFANA_DIGEST}
     container_name: grafana
     user: "472:0"
     environment:
@@ -502,11 +529,11 @@ EOF
   echo "[monitor 5/6] 설정 검사 (promtool / amtool)"
   docker run --rm --network none --entrypoint promtool \
     -v $base/prometheus.yml:/etc/prometheus/prometheus.yml:ro -v $base/rules:/etc/prometheus/rules:ro \
-    "prom/prometheus:${prom_tag}" check config /etc/prometheus/prometheus.yml
+    "prom/prometheus:${prom_tag}@sha256:${prom_dig}" check config /etc/prometheus/prometheus.yml
   docker run --rm --network none --entrypoint amtool \
     -v $base/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro \
     -v $base/secrets/discord_webhook:/etc/alertmanager/secrets/discord_webhook:ro \
-    "prom/alertmanager:${am_tag}" check-config /etc/alertmanager/alertmanager.yml
+    "prom/alertmanager:${am_tag}@sha256:${am_dig}" check-config /etc/alertmanager/alertmanager.yml
 
   echo "[monitor 6/6] 기동 / 설정 반영"
   (cd $base && docker compose up -d --remove-orphans)

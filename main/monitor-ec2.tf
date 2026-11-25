@@ -151,9 +151,10 @@ resource "aws_instance" "monitor" {
   vpc_security_group_ids      = [aws_security_group.role["mgmt"].id]
   iam_instance_profile        = aws_iam_instance_profile.monitor[0].name
 
-  # Deliberately no user_data: the current team's ROLE=monitor install script
-  # exposes 3000/9090/9093 on all interfaces and uses latest image tags.
-  # Approved hardened Docker Compose setup is installed later by Ops.
+  # Deliberately no user_data. After apply, Ops installs the monitoring stack via SSM:
+  #   sudo ROLE=monitor SSM_PREFIX=/durian ./main/scripts/install.sh
+  # The script binds 3000/9090/9093 to 127.0.0.1 only (access via SSM port forwarding)
+  # and pins Prometheus/Alertmanager/Grafana images by digest (see monitor() in install.sh).
   metadata_options {
     http_tokens                 = "required"
     http_put_response_hop_limit = 2
