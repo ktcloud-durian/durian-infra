@@ -78,13 +78,17 @@ for SITE in ${OS_SITES:-a}; do
   done
   judge OS-20 DAT-06 "$imgs"
 
-  # OS-IAM04 reader로 쓰기가 막히는지: 보안그룹 만들기 → 403이어야 PASS. 만들어지면 FAIL + 바로 삭제
-  name="durian-reader-write-test-$$"
-  if out=$(openstack --os-cloud "$P" security group create "$name" --description "reader write test, delete" 2>&1); then
-    openstack --os-cloud "$P" security group delete "$name" >/dev/null 2>&1 && d="테스트 그룹 삭제함" || d="❗ 테스트 그룹 $name 삭제 실패"
-    result OS-IAM04 IAM-04 FAIL "reader 계정으로 보안그룹이 만들어짐 (쓰기 권한 있음). $d"
-  elif grep -qiE "403|forbidden|not authorized|policy" <<<"$out"; then result OS-IAM04 IAM-04 PASS "쓰기 403 차단"
-  else result OS-IAM04 IAM-04 ERROR "403이 아닌 이유로 실패: $(head -c 150 <<<"$out" | tr '\n' ' ')"; fi
+  # OS-IAM04 reader로 쓰기가 막히는지: 정기 점검은 조회만 하므로 여기서 쓰기를 시도하지 않음.
+  # 쓰기 시험은 os-write-probe.sh를 사람이 따로 돌리고(보안그룹 만들기 → 403이어야 통과), 그 마지막 결과를 읽어 보여 줌
+  PROBE=${PROBE_DIR:-/var/lib/durian-check}/write-probe-$SITE.json
+  if [[ ! -s "$PROBE" ]]; then result OS-IAM04 IAM-04 SKIP "쓰기 시험 결과 없음 → sudo bash os-write-probe.sh $SITE"
+  else
+    pr=$(jqx -r '.result' <"$PROBE"); pd=$(jqx -r '"\(.date) 시험: \(.detail)"' <"$PROBE")
+    age=$(( ( $(date +%s) - $(stat -c %Y "$PROBE") ) / 86400 ))
+    if [[ "$pr" == __ERR__ || "$pd" == __ERR__ ]]; then result OS-IAM04 IAM-04 ERROR "쓰기 시험 결과 파일을 못 읽음 ($PROBE)"
+    elif (( age > 7 )); then result OS-IAM04 IAM-04 SKIP "쓰기 시험이 ${age}일 전 결과 (7일 넘음) → 다시 실행. $pd"
+    else result OS-IAM04 IAM-04 "$pr" "$pd"; fi
+  fi
 
   # OS-A1~A3 계정 항목 (system reader가 있을 때만)
   if ! has_cloud "$S"; then

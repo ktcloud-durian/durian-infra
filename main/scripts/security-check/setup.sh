@@ -17,7 +17,7 @@ command -v aws >/dev/null || { echo "ERROR: aws 명령 없음. install.sh ROLE=m
 
 echo "[2/5] 스크립트·설정·결과 폴더"
 install -d -m 755 "$DST"
-install -m 755 "$SRC"/lib.sh "$SRC"/aws.sh "$SRC"/openstack.sh "$SRC"/run.sh "$SRC"/os-baseline.sh "$DST"/
+install -m 755 "$SRC"/lib.sh "$SRC"/aws.sh "$SRC"/openstack.sh "$SRC"/run.sh "$SRC"/os-baseline.sh "$SRC"/os-write-probe.sh "$DST"/
 install -d -m 700 "$ETC" /var/lib/durian-check /var/lib/durian-check/results
 [[ -f "$ETC/config.env" ]] || install -m 600 "$SRC/config.env.example" "$ETC/config.env"
 [[ -f "$ETC/clouds.yaml" ]] && chmod 600 "$ETC/clouds.yaml"
@@ -79,11 +79,11 @@ groups:
         annotations:
           summary: '보안 점검 {{ $value }}개 항목이 확인 실패(ERROR). 권한·네트워크 문제일 수 있음: sudo journalctl -u durian-check'
       - alert: SecurityCheckStale
-        expr: (time() - durian_check_last_run_timestamp_seconds) > 2 * 86400 or absent(durian_check_last_run_timestamp_seconds)
+        expr: (time() - durian_check_last_success_timestamp_seconds) > 2 * 86400 or absent(durian_check_last_success_timestamp_seconds)
         for: 1h
         labels: { severity: warning }
         annotations:
-          summary: '보안 점검기가 2일 넘게 안 돌았음: systemctl status durian-check.timer'
+          summary: '보안 점검이 2일 넘게 성공하지 못함 (안 돌았거나 실행 실패): systemctl status durian-check.timer, journalctl -u durian-check'
 EOF
   if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx prometheus; then
     docker exec prometheus promtool check rules /etc/prometheus/rules/security-check.yml

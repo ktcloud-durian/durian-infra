@@ -173,8 +173,9 @@ else
   judge 25a LOG-05·06 "$m"
 fi
 if [[ "${GUARDDUTY:-false}" != true ]]; then
-  # GuardDuty는 계정에서 쓸 수 없어 CloudTrail + EventBridge 탐지로 대신함 (예외 EX-10). 25a·25d가 그 탐지를 점검
-  det=SKIP; result 25b LOG-05 SKIP "GuardDuty 안 씀 (예외 EX-10). 켜면 GUARDDUTY=true로 점검"
+  # GuardDuty는 계정에서 쓸 수 없어 CloudTrail + EventBridge 탐지로 대신함. 25a·25d가 그 탐지를 점검
+  # 일반 위반과 구분: 승인 예외(EXCEPT, EX-10)로 남김. 계정이 바뀌어 GuardDuty를 켜면 GUARDDUTY=true로 실제 점검
+  det=SKIP; result 25b LOG-05 EXCEPT "승인 예외 EX-10: GuardDuty 미지원 계정 → CloudTrail + EventBridge 탐지로 대체"
 else det=$(q guardduty list-detectors --query 'DetectorIds[0]' --output text); fi
 if [[ "$det" == SKIP ]]; then :
 elif [[ "$det" == __ERR__ ]]; then judge 25b LOG-05 __ERR__
