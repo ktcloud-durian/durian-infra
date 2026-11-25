@@ -80,7 +80,8 @@ resource "aws_iam_role_policy" "monitor_readonly" {
         Action = [
           "ec2:DescribeInstances",
           "ec2:DescribeTags",
-          "ec2:DescribeRegions"
+          "ec2:DescribeRegions",
+          "ec2:DescribeAvailabilityZones"
         ]
         Resource = "*"
       },
