@@ -966,7 +966,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * count(durian_check_result == 1) / count(durian_check_result >= 0)",
+          "expr": "100 * count(durian_check_result == 1) / count(durian_check_result == 1 or durian_check_result == 0)",
           "instant": true
         }
       ],
@@ -1015,7 +1015,7 @@
     },
     {
       "type": "stat",
-      "title": "FAIL / ERROR",
+      "title": "FAIL / ERROR / 승인 예외",
       "gridPos": {
         "x": 6,
         "y": 35,
@@ -1041,6 +1041,16 @@
           },
           "expr": "count(durian_check_result == -1) or vector(0)",
           "legendFormat": "ERROR",
+          "instant": true
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count(durian_check_result == 2) or vector(0)",
+          "legendFormat": "승인 예외",
           "instant": true
         }
       ],
@@ -1083,7 +1093,7 @@
     },
     {
       "type": "stat",
-      "title": "마지막 점검",
+      "title": "마지막 성공 점검",
       "gridPos": {
         "x": 12,
         "y": 35,
@@ -1097,7 +1107,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max(durian_check_last_run_timestamp_seconds) * 1000",
+          "expr": "max(durian_check_last_success_timestamp_seconds) * 1000",
           "instant": true
         }
       ],
@@ -1128,7 +1138,7 @@
     },
     {
       "type": "table",
-      "title": "FAIL·ERROR 항목",
+      "title": "FAIL·ERROR·승인 예외 항목",
       "gridPos": {
         "x": 16,
         "y": 35,
@@ -1142,7 +1152,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "durian_check_result < 1",
+          "expr": "durian_check_result < 1 or durian_check_result == 2",
           "format": "table",
           "instant": true
         }
