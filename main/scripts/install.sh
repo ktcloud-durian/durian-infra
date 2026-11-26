@@ -526,6 +526,8 @@ EOF
   # 변수 기본값이 비어 있어 기본 데이터 소스(isDefault: true인 Prometheus)가 자동 선택된다.
   install -m 644 "$raw" $base/grafana/dashboards/node-exporter-full.json
 
+  bash "$(dirname "${BASH_SOURCE[0]}")/monitoring/security-dashboard.sh" $base || { echo "[WARN] security-dashboard.sh failed" >&2; }  # LOG-05~07
+
   echo "[monitor 5/6] 설정 검사 (promtool / amtool)"
   docker run --rm --network none --entrypoint promtool \
     -v $base/prometheus.yml:/etc/prometheus/prometheus.yml:ro -v $base/rules:/etc/prometheus/rules:ro \
