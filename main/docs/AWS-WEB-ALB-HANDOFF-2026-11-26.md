@@ -81,3 +81,66 @@ ALB는 Worker/EC2 중지와 별개로 사용 요금이 발생할 수 있으므�
 - ALB 생성 및 운영 비용 승인
 
 현 시점 ALB Apply, Target Group Healthy 및 HTTPS 외부 접속은 미검증입니다.
+
+## 8. 11/26 배포 완료 후 검증 기록
+
+위 1~7절은 배포 전 검토 이력이며, 현재 상태는 이 절을 기준으로 합니다.
+
+### 실제 배포 결과
+
+기존 main의 ALB 및 Route 53 Terraform 리소스를 사용하여 로컬 저장 Plan을 적용했습니다. 배포 결과:
+
+```text
+Apply complete! Resources: 11 added, 5 changed, 0 destroyed.
+```
+
+- ALB, Target Group, HTTP/HTTPS Listener, A Alias, 보안그룹 규칙 및 배포 가드 생성 완료.
+- Worker A/C ASG의 Target Group 연결, Launch Template 업데이트, Monitor IAM Policy 업데이트 완료.
+- ALB 생성 약 2분 32초, Route 53 Alias 생성 약 32초 (Terraform 출력 기준).
+- ALB는 인터넷 연결형이며 80/443 접근 범위는 기존 전체 공개 정책 그대로입니다. 보안 담당자의 공개 범위 재검토가 필요합니다.
+
+### 실제 접속 및 보안 검증
+
+11/26 20:26 KST경 외부 접속 테스트 기준:
+
+| 검사 | 결과 |
+|---|---|
+| Worker A / C Target Group, HTTP 30080 | 2/2 healthy |
+| HTTP 도메인 요청 | 301, HTTPS 443으로 이동 |
+| HTTPS /health | 200, {"status":"ok"} |
+| 외부 브라우저 웹 페이지 | 정상 표시 |
+| HSTS / CSP 응답 헤더 | 존재 확인 |
+
+브라우저 및 curl에서 실제 도메인 접속을 확인했습니다. TLS 인증서 검증을 생략하는 옵션은 사용하지 않았습니다. 이는 웹 서비스 가용성 검증이며 DB 읽기/쓰기, 사용자 인증 성공, 장애 전환을 입증하는 것은 아닙니다.
+
+### 하이브리드 연결 정책 영구 반영 및 복구
+
+- [GitOps #9](https://github.com/ktcloud-durian/cicd-platform-gitops/pull/9): AWS Web Egress에 A/B API TCP 4000 허용, DNS 및 기본 차단 유지. main 병합 확인.
+- [ACL #16](https://github.com/ktcloud-durian/tailscale-acl/pull/16): A/B Core API 별칭 및 B 경로 자동 승인 추가. 적용 후 Master의 A/B 경로가 기본 NIC로 돌아가 API Timeout 발생.
+- [ACL #17](https://github.com/ktcloud-durian/tailscale-acl/pull/17): Master/Worker → A/B Core API TCP 4000 허용 및 Master 허용 테스트 추가. DB/SSH 차단 정책 유지. main 자동 ACL 적용 성공.
+- AWS Master A/C에서 A/B 목적지 모두 tailscale0, table 52 경로 복구 및 각 클러스터 Web Pod의 A/B /health 200 확인.
+- 인증 없는 내부 API 요청 401은 기존 A/B 양쪽 검증과 복구 후 C 클러스터의 A/B 재검증이 성공했습니다. 복구 후 A의 401 결과는 접속 노드가 명시된 로그로 추가 확인 권장.
+- C 클러스터 실제 NetworkPolicy에 A/B 주소 모두 존재. A/C Argo CD Sync 상태 및 전체 Pod별 검증은 별도 확인 대상.
+
+### 배포 설정 일치 (이번 PR의 Workflow 변경)
+
+`.github/workflows/terraform.yml`의 공통 env에 아래 3개 Terraform 변수 전달을 추가합니다. 기존 OIDC, 승인 게이트, 보안 검사 및 Apply 조건은 유지합니다.
+
+| Actions Repository Variable | 배포 유지에 필요한 값 |
+|---|---|
+| TF_APPLY_ENABLED | false 유지 |
+| TF_VAR_AWS_ALB_ENABLED | true (팀 승인 후) |
+| TF_VAR_AWS_ALB_CERTIFICATE_ARN | 서울 리전의 발급 완료 ACM 인증서 ARN |
+| TF_VAR_AWS_WEB_DOMAIN_NAME | durian-bank.xyz |
+| TF_VAR_AWS_WEB_ROUTE53_ZONE_ID | 기존 Public Hosted Zone ID |
+
+실제 변수값은 이번 PR이 변경하지 않습니다. 마지막 확인 당시 ALB 활성화 변수는 false이고 ACM/Route53 변수가 없었습니다. 현재 값은 관리자가 재확인해야 합니다. ALB가 이미 State에 존재하므로 false 설정으로 CI Plan을 수행하면 ALB 관련 삭제가 계획될 수 있습니다. Apply 금지 상태에서 팀과 변수 일치 작업을 진행하고 PR Plan을 재실행하여 의도하지 않은 삭제/교체가 없는지 확인해야 합니다. 로컬 terraform.tfvars에도 같은 설정을 안전하게 유지하고 비밀값, 계정 식별자가 포함된 전체 출력 및 상태 파일은 저장소에 커밋하지 않습니다.
+
+### 후속 검토 및 검증
+
+- 보안 담당: ALB 공개 범위 제한, 교육용 모의 은행 명시, 데모 자격증명 및 실제 개인정보 미사용 확인. 인증/DB 검증 전 외부 노출 최소화 권장.
+- CI/CD 담당: Actions 변수 일치, CI Plan 재검증, 자동 Apply 비활성화 및 production 승인 절차 확인.
+- 온프렘 담당: Core API → MariaDB 연동, 데모 로그인/조회/이체, AWS → DB 직접 접근 차단 실측.
+- 운영: Target Group 장애 전환, OpenStack A/B Failover/Failback, ALB와 공인 IPv4 비용 및 종료 방식 검토. EC2 중지로 ALB 비용이 중단되지는 않습니다.
+
+이번 PR은 Workflow 변수 전달 및 문서만 변경하며 ALB 보안그룹이나 실제 Actions Variables, AWS 리소스를 추가 변경하지 않습니다.
