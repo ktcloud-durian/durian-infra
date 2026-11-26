@@ -1,5 +1,5 @@
 #!/bin/bash
-# durian demo runner 설치 (EC2, Ubuntu 24.04). 초안 - 승인 전 실행 금지.
+# durian demo runner 설치 (EC2, Amazon Linux 2023). 초안 - 승인 전 실행 금지.
 # 사전: SSM SecureString 3개를 콘솔에서 직접 입력 (값은 코드 · 채팅에 두지 않음)
 #   /durian/demo-runner/token       러너 접속 토큰
 #   /durian/demo-runner/ssh-key     kolla-b forced-command 계정 개인키
@@ -11,8 +11,9 @@ TARGET="${RUNNER_SSH_TARGET:?예: durian-demo@100.x.x.x (kolla-b 호스트 Tails
 PORT="${RUNNER_PORT:-8088}"
 ssm_get(){ aws ssm get-parameter --region "$REGION" --name "$1" --with-decryption --query Parameter.Value --output text; }
 
-# 1) 필요한 패키지 (awscli, tailscale은 팀 install.sh와 같은 방식. 설치 승인 필요)
-command -v aws >/dev/null || { apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y awscli; }
+# 1) 필요한 도구 확인, tailscale 설치 (설치 승인 필요, 공식 스크립트가 Amazon Linux 지원)
+command -v aws >/dev/null || { echo "aws cli 없음 (Amazon Linux 2023은 기본 포함)"; exit 1; }
+command -v ssh >/dev/null || { echo "ssh 클라이언트 없음 (dnf install openssh-clients 는 추가 승인 필요)"; exit 1; }
 command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh
 systemctl enable --now tailscaled
 
