@@ -130,11 +130,20 @@ Apply complete! Resources: 11 added, 5 changed, 0 destroyed.
 |---|---|
 | TF_APPLY_ENABLED | false 유지 |
 | TF_VAR_AWS_ALB_ENABLED | true (팀 승인 후) |
-| TF_VAR_AWS_ALB_CERTIFICATE_ARN | 서울 리전의 발급 완료 ACM 인증서 ARN |
+| TF_VAR_AWS_ALB_CERTIFICATE_ARN (Repository Secret) | 서울 리전의 발급 완료 ACM 인증서 ARN |
 | TF_VAR_AWS_WEB_DOMAIN_NAME | durian-bank.xyz |
 | TF_VAR_AWS_WEB_ROUTE53_ZONE_ID | 기존 Public Hosted Zone ID |
 
 실제 변수값은 이번 PR이 변경하지 않습니다. 마지막 확인 당시 ALB 활성화 변수는 false이고 ACM/Route53 변수가 없었습니다. 현재 값은 관리자가 재확인해야 합니다. ALB가 이미 State에 존재하므로 false 설정으로 CI Plan을 수행하면 ALB 관련 삭제가 계획될 수 있습니다. Apply 금지 상태에서 팀과 변수 일치 작업을 진행하고 PR Plan을 재실행하여 의도하지 않은 삭제/교체가 없는지 확인해야 합니다. 로컬 terraform.tfvars에도 같은 설정을 안전하게 유지하고 비밀값, 계정 식별자가 포함된 전체 출력 및 상태 파일은 저장소에 커밋하지 않습니다.
+
+### PR #30 리뷰 반영 (11/26)
+
+- 최초 CI Plan: `0 to add, 4 to change, 11 to destroy`. 실제 Apply/Destroy는 실행하지 않았습니다.
+- 최초 Plan 로그에서 ACM ARN 환경변수 값이 비어 있어 실제 ARN 노출은 확인되지 않았습니다. 환경변수 값 자체가 로그에 표시되는 구조이므로 계정 ID 마스킹 원칙에 따라 ACM ARN은 Repository Secret으로 변경했습니다.
+- 도메인 및 Hosted Zone은 Repository Variables, ACM ARN은 Repository Secret으로 등록된 화면을 확인했습니다. Secret 실제 값은 화면에서 확인할 수 없으므로 최종 Plan에서 검증합니다.
+- Workflow의 인증서 참조를 `secrets.TF_VAR_AWS_ALB_CERTIFICATE_ARN`으로 변경했습니다. 동일 저장소 PR 기준이며 fork PR에는 Secret이 전달되지 않습니다.
+- 자동 Apply는 false 유지. ALB 활성화는 CI/CD 담당자와 협의 후 변경하고 최신 Plan에서 0 to destroy 및 나머지 변경 내용을 확인해야 합니다.
+- ALB 80/443 전체 공개는 EX 예외 대장 및 Trivy 검사 범위에 대해 보안 담당자 검토를 요청합니다. 로컬 Apply 내역은 팀 사후 공유가 필요합니다.
 
 ### 후속 검토 및 검증
 
