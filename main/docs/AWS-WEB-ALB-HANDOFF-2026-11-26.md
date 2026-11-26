@@ -8,7 +8,9 @@
 - Traefik HTTP NodePort 30080을 통한 SSM 포트 포워딩 웹 접속: A/C 성공.
 - AWS A/C Web Pod에서 OpenStack A Core API의 `/health` HTTP 200 및 인증 없는 내부 API 요청 HTTP 401 확인.
 - AWS Worker A/C 호스트에서 OpenStack A API Health Check 200 확인.
-- OpenStack B API 연결은 별도 작업: A/C 클러스터의 임시 Web Egress 정책 추가 후에도 VPN 경로 미수신 확인. GitOps 영구 반영 및 B API 재검증은 미완료.
+- OpenStack B API 연결: 초기 VPN 경로 미수신 및 Web Egress 미허용으로 연결 실패. A/C 클러스터 Web Egress에 B API(10.31.20.200/32 TCP 4000)를 임시 추가하고 Tailscale 경로 복구 후 11/26 16:55경 재검증 성공.
+- AWS Master A/C에서 `10.31.20.200` 목적지의 `tailscale0` / table 52 경로 및 `k8s-worker-b` Peer 확인. 각 클러스터의 Web Pod에서 B API `/health` HTTP 200 및 인증 없는 `/internal/customers/1/summary` HTTP 401 확인.
+- B API 통신 검증은 완료했으나 임시 NetworkPolicy의 GitOps 영구 반영, 전체 Pod/Worker 경로 및 자동 장애 전환은 별도 검증 필요.
 - 로그인, 조회, 이체, DB 복제 및 자동 장애 전환은 본 검증 범위에 포함하지 않음.
 
 ## 2. DNS 및 TLS
@@ -55,6 +57,7 @@ Plan: 11 to add, 5 to change, 0 to destroy.
 ## 5. 배포 및 검증 체크리스트
 
 - [x] SSM 웹 접속 및 OpenStack A API 연결 검증
+- [x] AWS A/C Web Pod → OpenStack B API 200/401 응답 검증
 - [x] 도메인, Route 53 위임 및 ACM 발급
 - [x] 로컬 ALB Terraform Plan
 - [ ] Actions 변수 전달 및 접근 정책 코드 정리
@@ -64,7 +67,7 @@ Plan: 11 to add, 5 to change, 0 to destroy.
 - [ ] ALB Target Group A/C Healthy 확인
 - [ ] Route 53 Alias 및 HTTPS 접속, HTTP 리다이렉트 확인
 - [ ] 로그인/금융 기능 별도 검증
-- [ ] OpenStack B 연결 및 GitOps 정책 별도 검증
+- [ ] B API Egress 정책 GitOps 영구 반영 및 재검증
 
 ## 6. 비용 및 운영
 
