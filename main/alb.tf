@@ -24,6 +24,8 @@ resource "terraform_data" "web_alb_guard" {
   }
 }
 
+# EX-01: Internet-facing ALB for external HTTPS service (review pending)
+#trivy:ignore:AVD-AWS-0053:exp:2026-12-04
 resource "aws_lb" "web" {
   count                      = var.aws_alb_enabled ? 1 : 0
   depends_on                 = [terraform_data.web_alb_guard]
