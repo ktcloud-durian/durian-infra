@@ -241,6 +241,7 @@ worker() {
 #       PROMETHEUS_TAG / ALERTMANAGER_TAG / GRAFANA_TAG
 #       PROMETHEUS_DIGEST / ALERTMANAGER_DIGEST / GRAFANA_DIGEST (태그와 짝으로 바꿈)
 #       DASH_NODE_FULL_REV / DASH_NODE_FULL_SHA256
+#       GRAFANA_EMBED_ORIGIN / GRAFANA_ROOT_URL: monitoring/grafana-embed.sh
 monitor() {
   local base=/opt/monitoring
   local prom_tag="${PROMETHEUS_TAG:-v3.5.0}" am_tag="${ALERTMANAGER_TAG:-v0.28.1}" gf_tag="${GRAFANA_TAG:-12.0.2}"
@@ -510,6 +511,7 @@ volumes:
   am-data:
   grafana-data:
 EOF
+  [[ -z "${GRAFANA_EMBED_ORIGIN:-}${GRAFANA_ROOT_URL:-}" ]] || bash "$(dirname "${BASH_SOURCE[0]}")/monitoring/grafana-embed.sh" compose $base/docker-compose.yml
 
   echo "[monitor 4/6] Grafana 대시보드 1860 (Node Exporter Full, rev ${dash_rev}, SHA-256 검증)"
   local raw="$base/grafana/cache/node-exporter-full-rev${dash_rev}.json"
