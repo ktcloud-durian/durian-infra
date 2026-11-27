@@ -14,8 +14,16 @@
 # - 켤 때 필요한 조건:
 #     1) 보안 담당 승인 (보안 설정 변경)
 #     2) SOC 화면에서 Grafana에 HTTPS로 접속할 수 있어야 함 (SameSite=None 쿠키는 Secure 필수 → http 주소로는
-#        iframe 안 로그인이 안 됨). 보통 GRAFANA_ROOT_URL에 그 HTTPS 주소를 같이 넣는다
+#        iframe 안 로그인이 안 됨). 그래서 GRAFANA_EMBED_ORIGIN을 쓰면 GRAFANA_ROOT_URL(https://...)도 필수.
+#        없거나 http://이면 설치 중단
 #     SSM 포트 포워딩(http://localhost:3000) 접속은 켠 뒤에도 쓸 수 있을 것으로 예상 (브라우저가 localhost를 보안 출처로 취급)
+#
+# 전달 경로: Monitor EC2는 User Data가 없고, 운영자가 SSM으로 저장소의 ./main/scripts/install.sh를 실행한다.
+#   install.sh는 같은 폴더 기준 monitoring/grafana-embed.sh를 부르므로 main/scripts 폴더를 통째로(이 파일 포함) 복사해야 한다.
+#   install.sh 파일 하나만 복사한 경우: 변수 없이 쓰면 영향 없음, 변수를 넣으면 "No such file"로 설치 중단
+#   (컨테이너는 다시 만들지 않음. 다음 실행 때 변수 없이 돌리면 원래 상태)
+# 크기 주의: install.sh는 K3s User Data(16KiB)에도 통째로 들어가며 남은 여유가 약 100자뿐이다 (main/k3s-userdata.tf 주석).
+#   그래서 이 기능은 install.sh에 호출 1줄만 두고 나머지를 이 파일에 둔다
 #
 # 사용: bash grafana-embed.sh check    → 변수 형식 검사 (틀리면 이유 출력 후 exit 1)
 #       bash grafana-embed.sh compose /opt/monitoring/docker-compose.yml
@@ -35,16 +43,22 @@ case "${1:-}" in
       echo "ERROR: GRAFANA_ROOT_URL 형식 오류: http(s)://호스트[:포트][/경로] 하나만 허용 → 설치 중단" >&2
       exit 1
     fi
+    if [[ -n "$origin" && "$root_url" != https://* ]]; then
+      echo "ERROR: GRAFANA_EMBED_ORIGIN을 쓰려면 GRAFANA_ROOT_URL에 Grafana의 HTTPS 주소(https://...)가 필요 → 설치 중단" >&2
+      echo "       SameSite=None 쿠키는 Secure 필수라 http로는 SOC 화면 iframe 안 로그인이 되지 않음" >&2
+      exit 1
+    fi
     if [[ -n "$origin" ]]; then
-      echo "  Grafana 임베드 켜짐: frame-ancestors 'self' $origin (익명 접근은 계속 꺼짐)"
-      [[ "$root_url" == https://* ]] || echo "  WARN: GRAFANA_ROOT_URL이 HTTPS가 아님. SOC 화면 iframe 안 로그인은 Grafana가 HTTPS일 때만 동작"
+      echo "  Grafana 임베드 켜짐: frame-ancestors 'self' $origin, root_url $root_url (익명 접근은 계속 꺼짐)"
+    elif [[ -n "$root_url" ]]; then
+      echo "  Grafana root_url: $root_url (임베드는 꺼짐)"
     fi
     ;;
   compose)
     # 인자: install.sh가 만든 docker-compose.yml. grafana environment의 마지막 줄(GF_NEWS_NEWS_FEED_ENABLED) 뒤에 넣는다
     file="${2:?사용: $0 compose <docker-compose.yml>}"
-    # check를 먼저 통과한 값만 쓴다 (형식이 틀리면 여기서도 중단)
-    bash "${BASH_SOURCE[0]}" check >/dev/null
+    # check를 먼저 통과한 값만 쓴다 (형식이 틀리면 여기서 중단, 안내 문구는 설치 로그에 남김)
+    bash "${BASH_SOURCE[0]}" check
     anchor='      GF_NEWS_NEWS_FEED_ENABLED: "false"'
     if [[ $(grep -cxF -- "$anchor" "$file") != 1 ]]; then
       echo "ERROR: $file 에서 Grafana 환경 변수 위치를 찾지 못함 (install.sh compose 형식 변경?) → 설치 중단" >&2
