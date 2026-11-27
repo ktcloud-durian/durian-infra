@@ -26,7 +26,11 @@ resource "aws_security_group" "role" {
 }
 
 # External HTTPS to ALB
+# EX-01: Public HTTPS for customer web access
+#trivy:ignore:AVD-AWS-0107:exp:2026-12-04
 resource "aws_vpc_security_group_ingress_rule" "alb_https" {
+  depends_on        = [aws_lambda_function.sec_responder]
+  count             = var.aws_alb_enabled && var.aws_alb_public_access ? 1 : 0
   security_group_id = aws_security_group.role["alb"].id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "tcp"

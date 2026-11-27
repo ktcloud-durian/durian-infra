@@ -17,9 +17,15 @@ resource "terraform_data" "web_alb_guard" {
       condition     = var.aws_k3s_enabled && var.aws_k3s_bootstrap_approved && startswith(var.aws_alb_certificate_arn, "arn:aws:acm:${var.region}:")
       error_message = "ALB requires approved K3s deployment and a valid in-region ACM certificate ARN."
     }
+    precondition {
+      condition     = var.aws_alb_public_access || length(var.aws_alb_allowed_cidrs) > 0
+      error_message = "Restricted ALB access requires at least one approved team IPv4 address."
+    }
   }
 }
 
+# EX-01: Internet-facing ALB for external HTTPS service (review pending)
+#trivy:ignore:AVD-AWS-0053:exp:2026-12-04
 resource "aws_lb" "web" {
   count                      = var.aws_alb_enabled ? 1 : 0
   depends_on                 = [terraform_data.web_alb_guard]

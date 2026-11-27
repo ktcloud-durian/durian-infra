@@ -6,3 +6,13 @@ instances = {
 
 # S3 (정해지면 용도 이름만 추가)
 # buckets = ["upload", "backup"]
+
+# ALB access policy (EX-01)
+# Verification: approved team IPv4 /32 only
+# aws_alb_enabled = true
+aws_alb_public_access = false
+aws_alb_allowed_cidrs = []
+
+# Approved demonstration only:
+# aws_alb_public_access = true
+# Return to restricted mode after demonstration.
