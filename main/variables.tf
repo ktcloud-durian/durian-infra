@@ -13,9 +13,7 @@ variable "instances" {
     volume_gb     = optional(number, 30)
     ami_id        = optional(string) # 지정하면 이 AMI로 부팅하고 user_data는 실행하지 않음
   }))
-  default = {
-    k3s = { role = "k3s", instance_type = "m7i-flex.large", ami_id = "ami-0427d6051617172b0" }
-  }
+  default = {} # 기존 단일 K3s 종료: 신규 A/C 클러스터는 별도 리소스로 관리
 }
 
 variable "subnet_id" {
