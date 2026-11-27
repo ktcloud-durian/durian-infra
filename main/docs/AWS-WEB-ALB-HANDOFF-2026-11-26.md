@@ -124,15 +124,17 @@ Apply complete! Resources: 11 added, 5 changed, 0 destroyed.
 
 ### 배포 설정 일치 (이번 PR의 Workflow 변경)
 
-`.github/workflows/terraform.yml`의 공통 env에 아래 3개 Terraform 변수 전달을 추가합니다. 기존 OIDC, 승인 게이트, 보안 검사 및 Apply 조건은 유지합니다.
+`.github/workflows/terraform.yml`의 공통 env에 아래 5개 Terraform 변수 전달을 추가합니다. Drift Workflow에도 같은 ALB 변수 전달을 반영합니다. 기존 OIDC, 승인 게이트, 보안 검사 및 Apply 조건은 유지합니다.
 
 | Actions Repository Variable / Secret | 배포 유지에 필요한 값 |
 |---|---|
 | TF_APPLY_ENABLED | false 유지 |
-| TF_VAR_AWS_ALB_ENABLED | true (팀 승인 후) |
+| TF_VAR_AWS_ALB_ENABLED (Repository Variable) | true (팀 승인 후) |
+| TF_VAR_AWS_ALB_PUBLIC_ACCESS (Repository Variable) | false (검증·평상시 제한 모드), true는 승인된 시연 기간에만 |
+| TF_VAR_AWS_ALB_ALLOWED_CIDRS (Repository Secret) | 승인된 팀원 IPv4 /32 목록 (JSON 배열, 실제 값 비공개) |
 | TF_VAR_AWS_ALB_CERTIFICATE_ARN (Repository Secret) | 서울 리전의 발급 완료 ACM 인증서 ARN |
-| TF_VAR_AWS_WEB_DOMAIN_NAME | durian-bank.xyz |
-| TF_VAR_AWS_WEB_ROUTE53_ZONE_ID | 기존 Public Hosted Zone ID |
+| TF_VAR_AWS_WEB_DOMAIN_NAME (Repository Variable) | durian-bank.xyz |
+| TF_VAR_AWS_WEB_ROUTE53_ZONE_ID (Repository Variable) | 기존 Public Hosted Zone ID |
 
 실제 변수값은 이번 PR이 변경하지 않습니다. 마지막 확인 당시 ALB 활성화 변수는 false이고 ACM/Route53 변수가 없었습니다. 현재 값은 관리자가 재확인해야 합니다. ALB가 이미 State에 존재하므로 false 설정으로 CI Plan을 수행하면 ALB 관련 삭제가 계획될 수 있습니다. Apply 금지 상태에서 팀과 변수 일치 작업을 진행하고 PR Plan을 재실행하여 의도하지 않은 삭제/교체가 없는지 확인해야 합니다. 로컬 terraform.tfvars에도 같은 설정을 안전하게 유지하고 비밀값, 계정 식별자가 포함된 전체 출력 및 상태 파일은 저장소에 커밋하지 않습니다.
 
@@ -169,7 +171,7 @@ Apply complete! Resources: 11 added, 5 changed, 0 destroyed.
 | Trivy 예외 | AVD-AWS-0107, AVD-AWS-0053 (리소스 단위) |
 | Lambda 예외 | 전체 공개 모드에서만 ALB SG의 TCP 80/443 허용 |
 | 만료 및 재검토 | 2026-12-04 |
-| 승인 | 송윤지 검토 대기 |
+| 승인 | 11/27 송윤지 PR 승인, 문서 수정 및 공개 전환 조건 준수 전제 |
 
 ### 보안 개선
 
@@ -199,9 +201,17 @@ Apply complete! Resources: 11 added, 5 changed, 0 destroyed.
 
 - Security Scan #72: ALB 활성화 검사에서 AWS-0053(HIGH) 탐지.
 - Internet-facing ALB 리소스에 AVD-AWS-0053 예외 주석 추가.
-- EX-01 예외 대장 개정안 작성, 보안 담당 승인 대기.
+- EX-01 예외 대장 개정안 작성, 11/27 보안 담당 PR 승인(조건부 공개 전환).
 - Security Scan #73: Gitleaks, TFLint, Trivy 기본/공개/제한 모드 모두 통과.
 - 팀원 6명 제한 모드 Plan: 12 add / 0 change / 2 destroy.
 - 삭제 대상은 기존 공개 TCP 80/443 SG 규칙으로 한정.
-- Actions 변수 일치 및 최종 CI Plan 확인 필요.
+- Actions 변수 설정 반영 기록 및 최신 CI Plan(4aa3088): `12 to add, 2 to change, 2 to destroy`. 기존 공개 SG 규칙 2개 제거 및 팀원 /32 규칙 12개 추가, 서울 및 us-east-1 Lambda in-place 변경 예정. 실제 현재 변수값 및 상세 diff는 Apply 직전 재확인 필요.
 - 실제 AWS Apply 미진행.
+
+### 공개 전환 및 제한 모드 복구 절차 (EX-01)
+
+적용 전제: 로그인 HTTP 500 및 Core API Timeout 해결, 실제 로그인 성공 및 AWS → MariaDB TCP 3306 차단 원인(허용/차단 정책과 실측의 일치) 검증 전에는 공개 모드로 전환하지 않습니다. AWS 인프라 담당자가 보안 담당자 및 CI/CD 담당자와 협의하여 승인된 팀원 /32 목록을 Repository Secret에 유지하고, `TF_VAR_AWS_ALB_PUBLIC_ACCESS=false`, `TF_APPLY_ENABLED=false`, `auto_revoke_mode=notify`를 기본으로 유지합니다. 공개 승인 후에만 관리자가 `TF_VAR_AWS_ALB_PUBLIC_ACCESS=true`로 변경하고 최신 Terraform Plan에서 ALB SG TCP 80/443 및 서울 Lambda의 ALB 예외 반영 범위, Lambda/SG 적용 순서, 의도하지 않은 삭제·교체가 없는지 검토한 뒤 팀 승인된 수동 Apply를 수행합니다. 시연 종료 후 동일 담당자가 `TF_VAR_AWS_ALB_PUBLIC_ACCESS=false`로 복구하고 Plan/승인/Apply 및 팀원 접근·비승인 IP 차단·Lambda 예외 제거를 재검증합니다. 자동 Apply는 비활성화 유지하며 2026-12-04에 EX-01 예외를 재검토합니다.
+
+### sec_responder_use1 변경 사유 및 확인 범위
+
+서울 `sec_responder`와 us-east-1 `sec_responder_use1`은 동일한 `data.archive_file.sec_responder` ZIP 및 `source_code_hash`를 참조합니다. 최신 CI Plan에는 두 함수의 in-place 변경이 표시되지만 요약에는 세부 속성이 없어 us-east-1 변경의 직접 원인(공유 패키지 해시 차이 등)은 상세 Plan으로 확인해야 합니다. us-east-1은 IAM/root 등 글로벌 이벤트 알림용이며 `MODE=notify`, `EXCEPTIONS={}` 고정으로 유지됩니다. ALB 공개 예외 환경변수 변경은 서울 함수에만 적용하며 글로벌 Lambda의 차단 권한/정책 확대나 리소스 교체를 의도하지 않습니다. 상세 Plan에 예상 외 환경변수, IAM, 교체 또는 삭제 변경이 있으면 Apply를 중단합니다.
