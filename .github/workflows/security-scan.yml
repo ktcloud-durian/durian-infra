@@ -77,5 +77,28 @@ jobs:
           echo "${TRIVY_SHA256}  ${f}" | sha256sum -c -
           tar -xzf "$f" trivy && sudo install -m 0755 trivy /usr/local/bin/trivy
       - name: Config scan (MEDIUM 이상이면 실패)
-        # 예외는 .trivyignore.yaml 에만, 줄마다 예외 대장 번호(EX-xx)와 만료일 (보안 기준서 7.1)
+        # 예외는 .trivyignore.yaml 또는 승인된 리소스 단위 주석에, 줄마다 예외 대장 번호(EX-xx)와 만료일 (보안 기준서 7.1)
         run: trivy config --severity MEDIUM,HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore.yaml .
+
+      - name: Config scan (ALB enabled)
+        run: |
+          printf '%s\n' 'aws_alb_enabled = true' 'aws_alb_public_access = true' > "$RUNNER_TEMP/alb-scan.tfvars"
+          trivy config \
+            --tf-vars "$RUNNER_TEMP/alb-scan.tfvars" \
+            --severity MEDIUM,HIGH,CRITICAL \
+            --exit-code 1 \
+            --ignorefile .trivyignore.yaml .
+
+      - name: Config scan (ALB restricted)
+        run: |
+          printf '%s\n' \
+            'aws_alb_enabled = true' \
+            'aws_alb_public_access = false' \
+            'aws_alb_allowed_cidrs = ["192.0.2.10/32"]' \
+            > "$RUNNER_TEMP/alb-restricted.tfvars"
+
+          trivy config \
+            --tf-vars "$RUNNER_TEMP/alb-restricted.tfvars" \
+            --severity MEDIUM,HIGH,CRITICAL \
+            --exit-code 1 \
+            --ignorefile .trivyignore.yaml .

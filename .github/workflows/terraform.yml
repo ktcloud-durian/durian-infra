@@ -45,6 +45,8 @@ env:
   TF_VAR_monitor_enabled: ${{ vars.TF_VAR_monitor_enabled }}
   TF_VAR_monitor_instance_type: ${{ vars.TF_VAR_monitor_instance_type }}
   TF_VAR_aws_alb_enabled: ${{ vars.TF_VAR_aws_alb_enabled }}
+  TF_VAR_aws_alb_public_access: ${{ vars.TF_VAR_AWS_ALB_PUBLIC_ACCESS || 'false' }}
+  TF_VAR_aws_alb_allowed_cidrs: ${{ secrets.TF_VAR_AWS_ALB_ALLOWED_CIDRS || '[]' }}
   TF_VAR_aws_alb_certificate_arn: ${{ secrets.TF_VAR_AWS_ALB_CERTIFICATE_ARN }}
   TF_VAR_aws_web_domain_name: ${{ vars.TF_VAR_aws_web_domain_name }}
   TF_VAR_aws_web_route53_zone_id: ${{ vars.TF_VAR_aws_web_route53_zone_id }}
@@ -108,7 +110,7 @@ jobs:
               { grep -E -A4 '^(│ )?Error' plan.log || tail -20 plan.log; } | tail -60
               echo '```'
             fi
-          } | sed -E 's/[0-9]{12}/************/g' > plan-summary.md
+          } | sed -E 's/[0-9]{12}/************/g; s/([0-9]{1,3}\.){3}[0-9]{1,3}/[IPv4]/g' > plan-summary.md
           cat plan-summary.md
           rm -f plan.log
           if [ "$code" -eq 1 ]; then exit 1; fi
@@ -163,9 +165,9 @@ jobs:
           set +e
           terraform plan -no-color -out=tfplan > plan.log 2>&1
           code=$?
-          if [ "$code" -ne 0 ]; then { grep -E -A4 '^(│ )?Error' plan.log || tail -20 plan.log; } | tail -60 | sed -E 's/[0-9]{12}/************/g'; exit "$code"; fi
+          if [ "$code" -ne 0 ]; then { grep -E -A4 '^(│ )?Error' plan.log || tail -20 plan.log; } | tail -60 | sed -E 's/[0-9]{12}/************/g; s/([0-9]{1,3}\.){3}[0-9]{1,3}/[IPv4]/g'; exit "$code"; fi
           grep -E '^Plan:|No changes' plan.log | tail -1
-          grep -E '^  # .+ (will be|must be) ' plan.log | sed -E 's/^  # //; s/[0-9]{12}/************/g'
+          grep -E '^  # .+ (will be|must be) ' plan.log | sed -E 's/^  # //; s/[0-9]{12}/************/g; s/([0-9]{1,3}\.){3}[0-9]{1,3}/[IPv4]/g'
           rm -f plan.log
 
       - name: apply
@@ -174,7 +176,7 @@ jobs:
           set +e
           terraform apply -no-color tfplan > apply.log 2>&1
           code=$?
-          if [ "$code" -ne 0 ]; then { grep -E -A4 '^(│ )?Error' apply.log || tail -20 apply.log; } | tail -60 | sed -E 's/[0-9]{12}/************/g'
+          if [ "$code" -ne 0 ]; then { grep -E -A4 '^(│ )?Error' apply.log || tail -20 apply.log; } | tail -60 | sed -E 's/[0-9]{12}/************/g; s/([0-9]{1,3}\.){3}[0-9]{1,3}/[IPv4]/g'
           else grep -E '^Apply complete' apply.log; fi
           rm -f apply.log
           exit "$code"
@@ -211,7 +213,7 @@ jobs:
           set +e
           terraform destroy -no-color -auto-approve > destroy.log 2>&1
           code=$?
-          if [ "$code" -ne 0 ]; then { grep -E -A4 '^(│ )?Error' destroy.log || tail -20 destroy.log; } | tail -60 | sed -E 's/[0-9]{12}/************/g'
+          if [ "$code" -ne 0 ]; then { grep -E -A4 '^(│ )?Error' destroy.log || tail -20 destroy.log; } | tail -60 | sed -E 's/[0-9]{12}/************/g; s/([0-9]{1,3}\.){3}[0-9]{1,3}/[IPv4]/g'
           else grep -E '^Destroy complete' destroy.log; fi
           rm -f destroy.log
           exit "$code"

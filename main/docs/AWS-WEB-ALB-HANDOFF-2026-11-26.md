@@ -80,7 +80,7 @@ ALB는 Worker/EC2 중지와 별개로 사용 요금이 발생할 수 있으므�
 - GitHub Actions 변수 전달 및 배포 승인 절차
 - ALB 생성 및 운영 비용 승인
 
-현 시점 ALB Apply, Target Group Healthy 및 HTTPS 외부 접속은 미검증입니다.
+ALB Apply, Target Group A/C Healthy 및 HTTPS 외부 접속 검증은 2026년 11월 26일 완료했습니다. 최신 결과는 8절을 참고합니다.
 
 ## 8. 11/26 배포 완료 후 검증 기록
 
@@ -126,7 +126,7 @@ Apply complete! Resources: 11 added, 5 changed, 0 destroyed.
 
 `.github/workflows/terraform.yml`의 공통 env에 아래 3개 Terraform 변수 전달을 추가합니다. 기존 OIDC, 승인 게이트, 보안 검사 및 Apply 조건은 유지합니다.
 
-| Actions Repository Variable | 배포 유지에 필요한 값 |
+| Actions Repository Variable / Secret | 배포 유지에 필요한 값 |
 |---|---|
 | TF_APPLY_ENABLED | false 유지 |
 | TF_VAR_AWS_ALB_ENABLED | true (팀 승인 후) |
@@ -152,4 +152,45 @@ Apply complete! Resources: 11 added, 5 changed, 0 destroyed.
 - 온프렘 담당: Core API → MariaDB 연동, 데모 로그인/조회/이체, AWS → DB 직접 접근 차단 실측.
 - 운영: Target Group 장애 전환, OpenStack A/B Failover/Failback, ALB와 공인 IPv4 비용 및 종료 방식 검토. EC2 중지로 ALB 비용이 중단되지는 않습니다.
 
-이번 PR은 Workflow 변수 전달 및 문서만 변경하며 ALB 보안그룹이나 실제 Actions Variables, AWS 리소스를 추가 변경하지 않습니다.
+이번 PR은 11/27 보안 리뷰에 따라 Workflow, ALB 접근 제어, Lambda 예외 및 문서를 수정합니다. 실제 Actions 설정 변경과 AWS Apply는 팀 승인 이후 진행합니다.
+
+## 9. 11/27 보안 검토 반영 (PR #30)
+
+### EX-01 보안 예외
+
+| 항목 | 내용 |
+|---|---|
+| 기준 | NET-02, LOG-06 |
+| 대상 | ALB Security Group TCP 80/443 |
+| 공개 범위 | 시연 기간 0.0.0.0/0 |
+| 80번 목적 | HTTPS 리다이렉트 |
+| 443번 목적 | 외부 고객 웹 서비스 |
+| 검증 기간 | 승인된 팀원 IPv4 /32만 허용 |
+| Trivy 예외 | AVD-AWS-0107, 리소스 단위 |
+| Lambda 예외 | ALB SG의 TCP 80/443만 허용 |
+| 만료 및 재검토 | 2026-12-04 |
+| 승인 | 송윤지 검토 대기 |
+
+### 보안 개선
+
+- Trivy 기본, ALB 공개, ALB 제한 모드 검사
+- EX-01 및 만료일 주석 추가
+- ALB 공개 모드에 따른 Lambda 자동 차단 예외 연동
+- 검증 기간 팀 IP 제한
+- 시연 후 제한 모드 복구 및 예외 재검토
+- ACM ARN 및 팀원 IP 목록은 Actions Secret으로 관리
+- Terraform 및 Drift Workflow의 변수 전달 일치
+- Worker NodePort 30080은 ALB SG에서만 접근 허용
+- 자동 Apply 비활성화 유지
+- Lambda 예외 적용 및 SG 공개 전환 순서 검증 필요
+
+### 최신 검증 결과
+
+- AWS A/C에서 온프렘 A/B Core API 경유 DB 조회 4/4 성공
+- MariaDB TCP 3306 직접 연결 실패 4/4 확인
+- DB 접근 실패 원인별 보안 정책 검증은 추가 필요
+- Argo CD A/C Synced
+- 홈페이지 로그인 HTTP 500 및 Core API Timeout 조사 중
+- 이체 및 DB 복제와 자동 장애 전환 미검증
+
+본 변경은 코드 작성 및 검토 단계이며 실제 AWS Apply는 수행하지 않았다.

@@ -75,8 +75,16 @@ resource "aws_lambda_function" "sec_responder" {
 
   environment {
     variables = {
-      MODE          = var.auto_revoke_mode
-      EXCEPTIONS    = jsonencode(var.public_ingress_exceptions)
+      MODE = var.auto_revoke_mode
+      EXCEPTIONS = jsonencode(merge(
+        {
+          for sg_id, ports in var.public_ingress_exceptions :
+          sg_id => ports if sg_id != aws_security_group.role["alb"].id
+        },
+        var.aws_alb_enabled && var.aws_alb_public_access ? {
+          (aws_security_group.role["alb"].id) = [80, 443]
+        } : {}
+      ))
       WEBHOOK_PARAM = var.security_webhook_param
     }
   }

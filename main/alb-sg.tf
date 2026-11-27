@@ -20,8 +20,11 @@ resource "aws_vpc_security_group_egress_rule" "web_alb_to_worker" {
   description                  = "ALB to Cluster ${each.key} K3s Worker NodePort"
 }
 
+# EX-01: Public HTTP for HTTPS redirect only
+#trivy:ignore:AVD-AWS-0107:exp:2026-12-04
 resource "aws_vpc_security_group_ingress_rule" "web_alb_http_redirect" {
-  count             = var.aws_alb_enabled ? 1 : 0
+  depends_on        = [aws_lambda_function.sec_responder]
+  count             = var.aws_alb_enabled && var.aws_alb_public_access ? 1 : 0
   security_group_id = aws_security_group.role["alb"].id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "tcp"
