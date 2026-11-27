@@ -1,201 +1,207 @@
-# AWS ???쒕퉬??援ъ텞 諛?ALB쨌Route 53 諛고룷 寃??(2026-11-26)
+# AWS 웹 서비스 구축 및 ALB·Route 53 배포 검토 (2026-11-26)
 
-> 諛고룷 以鍮?諛??뱀씤 ?붿껌??湲곕줉?낅땲?? ? ?뱀씤 ??Merge 諛?Apply瑜?吏꾪뻾?섏? ?딆뒿?덈떎. ??臾몄꽌 異붽? ?먯껜???명봽??援ъ꽦??蹂寃쏀븯吏 ?딆뒿?덈떎.
+> 배포 준비 및 승인 요청용 기록입니다. 팀 승인 전 Merge 및 Apply를 진행하지 않습니다. 이 문서 추가 자체는 인프라 구성을 변경하지 않습니다.
 
-## 1. 援ъ텞 諛?寃利??댁뿭 (11/25~11/26)
+## 1. 구축 및 검증 내역 (11/25~11/26)
 
-- 湲곗〈 AWS A/C ?낅┰ K3s ?대윭?ㅽ꽣 諛?Argo CD 湲곕컲 Bank Web 諛고룷 援ъ꽦 ?ъ슜.
-- Traefik HTTP NodePort 30080???듯븳 SSM ?ы듃 ?ъ썙?????묒냽: A/C ?깃났.
-- AWS A/C Web Pod?먯꽌 OpenStack A Core API??`/health` HTTP 200 諛??몄쬆 ?녿뒗 ?대? API ?붿껌 HTTP 401 ?뺤씤.
-- AWS Worker A/C ?몄뒪?몄뿉??OpenStack A API Health Check 200 ?뺤씤.
-- OpenStack B API ?곌껐: 珥덇린 VPN 寃쎈줈 誘몄닔??諛?Web Egress 誘명뿀?⑹쑝濡??곌껐 ?ㅽ뙣. A/C ?대윭?ㅽ꽣 Web Egress??B API(10.31.20.200/32 TCP 4000)瑜??꾩떆 異붽??섍퀬 Tailscale 寃쎈줈 蹂듦뎄 ??11/26 16:55寃??ш?利??깃났.
-- AWS Master A/C?먯꽌 `10.31.20.200` 紐⑹쟻吏??`tailscale0` / table 52 寃쎈줈 諛?`k8s-worker-b` Peer ?뺤씤. 媛??대윭?ㅽ꽣??Web Pod?먯꽌 B API `/health` HTTP 200 諛??몄쬆 ?녿뒗 `/internal/customers/1/summary` HTTP 401 ?뺤씤.
-- B API ?듭떊 寃利앹? ?꾨즺?덉쑝???꾩떆 NetworkPolicy??GitOps ?곴뎄 諛섏쁺, ?꾩껜 Pod/Worker 寃쎈줈 諛??먮룞 ?μ븷 ?꾪솚? 蹂꾨룄 寃利??꾩슂.
-- 濡쒓렇?? 議고쉶, ?댁껜, DB 蹂듭젣 諛??먮룞 ?μ븷 ?꾪솚? 蹂?寃利?踰붿쐞???ы븿?섏? ?딆쓬.
+- 기존 AWS A/C 독립 K3s 클러스터 및 Argo CD 기반 Bank Web 배포 구성 사용.
+- Traefik HTTP NodePort 30080을 통한 SSM 포트 포워딩 웹 접속: A/C 성공.
+- AWS A/C Web Pod에서 OpenStack A Core API의 `/health` HTTP 200 및 인증 없는 내부 API 요청 HTTP 401 확인.
+- AWS Worker A/C 호스트에서 OpenStack A API Health Check 200 확인.
+- OpenStack B API 연결: 초기 VPN 경로 미수신 및 Web Egress 미허용으로 연결 실패. A/C 클러스터 Web Egress에 B API(10.31.20.200/32 TCP 4000)를 임시 추가하고 Tailscale 경로 복구 후 11/26 16:55경 재검증 성공.
+- AWS Master A/C에서 `10.31.20.200` 목적지의 `tailscale0` / table 52 경로 및 `k8s-worker-b` Peer 확인. 각 클러스터의 Web Pod에서 B API `/health` HTTP 200 및 인증 없는 `/internal/customers/1/summary` HTTP 401 확인.
+- B API 통신 검증은 완료했으나 임시 NetworkPolicy의 GitOps 영구 반영, 전체 Pod/Worker 경로 및 자동 장애 전환은 별도 검증 필요.
+- 로그인, 조회, 이체, DB 복제 및 자동 장애 전환은 본 검증 범위에 포함하지 않음.
 
-## 2. DNS 諛?TLS
+## 2. DNS 및 TLS
 
-- 媛鍮꾩븘?먯꽌 援먯쑁???곕え ?꾨찓??`durian-bank.xyz` ?깅줉.
-- Route 53 Public Hosted Zone ?앹꽦, 媛鍮꾩븘 ?ㅼ엫?쒕쾭瑜?Route 53?쇰줈 ?꾩엫.
-- ?쒖슱 由ъ쟾 ACM 怨듦컻 ?몄쬆???붿껌 (DNS 寃利? ?대낫?닿린 鍮꾪솢?깊솕).
-- 寃利?CNAME ?깅줉: Route 53 蹂寃??곹깭 INSYNC, 怨듦컻 NS/CNAME 議고쉶 ?깃났, ACM ISSUED ?뺤씤.
-- Hosted Zone怨??몄쬆?쒕뒗 CLI/肄섏넄?먯꽌 ?ъ쟾 ?앹꽦??由ъ냼?ㅼ씠硫? ??PR?먯꽌 ?좉퇋 Terraform 愿由?由ъ냼?ㅻ줈 媛?몄삤吏 ?딆쓬. ?몄쬆??媛깆떊???꾩슂??CNAME ?좎?.
+- 가비아에서 교육용 데모 도메인 `durian-bank.xyz` 등록.
+- Route 53 Public Hosted Zone 생성, 가비아 네임서버를 Route 53으로 위임.
+- 서울 리전 ACM 공개 인증서 요청 (DNS 검증, 내보내기 비활성화).
+- 검증 CNAME 등록: Route 53 변경 상태 INSYNC, 공개 NS/CNAME 조회 성공, ACM ISSUED 확인.
+- Hosted Zone과 인증서는 CLI/콘솔에서 사전 생성한 리소스이며, 이 PR에서 신규 Terraform 관리 리소스로 가져오지 않음. 인증서 갱신에 필요한 CNAME 유지.
 
-## 3. ALB 諛고룷 怨꾪쉷
+## 3. ALB 배포 계획
 
-湲곗〈 main??`alb.tf`, `alb-sg.tf`, `sg-roles.tf`, `k3s-worker.tf`, `route53-web.tf`瑜??ъ슜.
+기존 main의 `alb.tf`, `alb-sg.tf`, `sg-roles.tf`, `k3s-worker.tf`, `route53-web.tf`를 사용.
 
-- ?명꽣???곌껐 ALB, A/C Public Subnet.
-- HTTPS 443 (ACM), HTTP 80 ??HTTPS 301.
-- Target Group: Instance ?좏삎, HTTP 30080, Health Check /health.
-- Worker A/C ASG ???숈씪 Target Group ?곌껐.
-- Worker NodePort ?묎렐? ALB SG?먯꽌留??덉슜?섎뒗 ?좉퇋 洹쒖튃.
-- 湲곗〈 Hosted Zone??ALB ???A Alias ?앹꽦 ?덉젙.
+- 인터넷 연결 ALB, A/C Public Subnet.
+- HTTPS 443 (ACM), HTTP 80 → HTTPS 301.
+- Target Group: Instance 유형, HTTP 30080, Health Check /health.
+- Worker A/C ASG → 동일 Target Group 연결.
+- Worker NodePort 접근은 ALB SG에서만 허용하는 신규 규칙.
+- 기존 Hosted Zone에 ALB 대상 A Alias 생성 예정.
 
-濡쒖뺄 Plan (main 湲곗? 而ㅻ컠 `156ed57`, 怨듦컻 ?묎렐 ?뺤콉 蹂寃???:
+로컬 Plan (main 기준 커밋 `156ed57`, 공개 접근 정책 변경 전):
 
 ```text
 Plan: 11 to add, 5 to change, 0 to destroy.
 ```
 
-?좉퇋 11媛? ALB, Target Group, Listener 2媛? Alias, ALB/Worker 蹂댁븞洹몃９ 洹쒖튃 5媛? Terraform 諛고룷 議곌굔 媛??
+신규 11개: ALB, Target Group, Listener 2개, Alias, ALB/Worker 보안그룹 규칙 5개, Terraform 배포 조건 가드.
 
-蹂寃?5媛? Worker A/C ASG Target Group ?곌껐, Worker A/C Launch Template ?낅뜲?댄듃, Monitor IAM Policy ?낅뜲?댄듃. 湲곗〈 由ъ냼????젣/援먯껜 怨꾪쉷 ?놁쓬. ?뱀떆 ??ASG 紐⑤몢 Min/Desired/Max=1, Worker InService ?뺤씤. Launch Template 蹂寃쎌? ?좉퇋 踰꾩쟾???곹뼢??二쇰?濡?? 寃???꾩슂.
+변경 5개: Worker A/C ASG Target Group 연결, Worker A/C Launch Template 업데이트, Monitor IAM Policy 업데이트. 기존 리소스 삭제/교체 계획 없음. 당시 두 ASG 모두 Min/Desired/Max=1, Worker InService 확인. Launch Template 변경은 신규 버전에 영향을 주므로 팀 검토 필요.
 
-## 4. 諛고룷 ???⑥? ?ㅼ젙
+## 4. 배포 전 남은 설정
 
-?꾩옱 Workflow?먮뒗 ALB ?쒖꽦??蹂?섎쭔 ?꾨떖?? ?꾨옒 ??蹂?섏쓽 GitHub Actions ?곕룞? 蹂꾨룄 肄붾뱶 蹂寃??꾩슂.
+현재 Workflow에는 ALB 활성화 변수만 전달됨. 아래 세 변수의 GitHub Actions 연동은 별도 코드 변경 필요.
 
 - `TF_VAR_aws_alb_certificate_arn`
 - `TF_VAR_aws_web_domain_name`
 - `TF_VAR_aws_web_route53_zone_id`
 
-?ㅼ젣 ARN 諛?Zone ID??Actions Variables ??? ?뱀씤???ㅼ젙?쇰줈 ?꾨떖?섍퀬 濡쒖뺄 諛깆뾽, 媛쒖씤 IP, ?곹깭 ?뚯씪, Plan ?꾨Ц? 而ㅻ컠?섏? ?딆쓬. ALB ?쒖꽦??諛?Apply ?뱀씤 ?ㅼ쐞移섎뒗 ? ?뱀씤 ???쒖꽦?뷀븯吏 ?딆쓬.
+실제 ARN 및 Zone ID는 Actions Variables 등 팀 승인된 설정으로 전달하고 로컬 백업, 개인 IP, 상태 파일, Plan 전문은 커밋하지 않음. ALB 활성화 및 Apply 승인 스위치는 팀 승인 전 활성화하지 않음.
 
-?꾩옱 ALB 80/443 CIDR? 0.0.0.0/0. 理쒖큹 ?뚯뒪?몃뒗 ?뱀씤?????IP濡??쒗븳?섎뒗 諛⑺뼢 寃???꾩슂. ?몃? 怨듦컻 ??濡쒓렇??湲덉쑖 湲곕뒫怨??곕え ?곗씠?걔룹옄寃⑹쬆紐??먭? ?꾩슂. ??臾몄꽌??蹂댁븞洹몃９ 肄붾뱶瑜??섏젙?섏? ?딆쓬.
+현재 ALB 80/443 CIDR은 0.0.0.0/0. 최초 테스트는 승인된 팀원 IP로 제한하는 방향 검토 필요. 외부 공개 전 로그인/금융 기능과 데모 데이터·자격증명 점검 필요. 이 문서는 보안그룹 코드를 수정하지 않음.
 
-## 5. 諛고룷 諛?寃利?泥댄겕由ъ뒪??
+## 5. 배포 및 검증 체크리스트
 
-- [x] SSM ???묒냽 諛?OpenStack A API ?곌껐 寃利?
-- [x] AWS A/C Web Pod ??OpenStack B API 200/401 ?묐떟 寃利?
-- [x] ?꾨찓?? Route 53 ?꾩엫 諛?ACM 諛쒓툒
-- [x] 濡쒖뺄 ALB Terraform Plan
-- [ ] Actions 蹂???꾨떖 諛??묎렐 ?뺤콉 肄붾뱶 ?뺣━
-- [ ] 理쒖떊 main 湲곗? CI Plan 諛?蹂댁븞 寃??
-- [ ] ? 由щ럭 諛?諛고룷 ?뱀씤
-- [ ] ?뱀씤??諛⑹떇?쇰줈 Terraform Apply (?ㅻⅨ ???諛고룷? 以묐났 湲덉?)
-- [ ] ALB Target Group A/C Healthy ?뺤씤
-- [ ] Route 53 Alias 諛?HTTPS ?묒냽, HTTP 由щ떎?대젆???뺤씤
-- [ ] 濡쒓렇??湲덉쑖 湲곕뒫 蹂꾨룄 寃利?
-- [ ] B API Egress ?뺤콉 GitOps ?곴뎄 諛섏쁺 諛??ш?利?
+- [x] SSM 웹 접속 및 OpenStack A API 연결 검증
+- [x] AWS A/C Web Pod → OpenStack B API 200/401 응답 검증
+- [x] 도메인, Route 53 위임 및 ACM 발급
+- [x] 로컬 ALB Terraform Plan
+- [ ] Actions 변수 전달 및 접근 정책 코드 정리
+- [ ] 최신 main 기준 CI Plan 및 보안 검사
+- [ ] 팀 리뷰 및 배포 승인
+- [ ] 승인된 방식으로 Terraform Apply (다른 팀원 배포와 중복 금지)
+- [ ] ALB Target Group A/C Healthy 확인
+- [ ] Route 53 Alias 및 HTTPS 접속, HTTP 리다이렉트 확인
+- [ ] 로그인/금융 기능 별도 검증
+- [ ] B API Egress 정책 GitOps 영구 반영 및 재검증
 
-## 6. 鍮꾩슜 諛??댁쁺
+## 6. 비용 및 운영
 
-ALB??Worker/EC2 以묒?? 蹂꾧컻濡??ъ슜 ?붽툑??諛쒖깮?????덉쑝誘濡??쒖뿰 ???댁쁺 ?щ? 諛??쒓굅 怨꾪쉷???怨??묒쓽. ?뺣━ ???꾩껜 terraform destroy ???ALB 愿??蹂寃?踰붿쐞瑜?寃?좏븳 Plan?쇰줈 吏꾪뻾?섍퀬, DNS 寃利?CNAME怨?Hosted Zone, ACM ?몄쬆?쒕뒗 ?꾩냽 ?ъ슜 ?щ???留욎떠 ?좎?.
+ALB는 Worker/EC2 중지와 별개로 사용 요금이 발생할 수 있으므로 시연 외 운영 여부 및 제거 계획을 팀과 협의. 정리 시 전체 terraform destroy 대신 ALB 관련 변경 범위를 검토한 Plan으로 진행하고, DNS 검증 CNAME과 Hosted Zone, ACM 인증서는 후속 사용 여부에 맞춰 유지.
 
-## 7. 由щ럭 ?붿껌
+## 7. 리뷰 요청
 
-- ALB 80/443 理쒖큹 ?묎렐 踰붿쐞 諛?怨듦컻 湲곗?
-- ASG 諛?Launch Template, Monitor IAM 蹂寃??곹뼢
-- GitHub Actions 蹂???꾨떖 諛?諛고룷 ?뱀씤 ?덉감
-- ALB ?앹꽦 諛??댁쁺 鍮꾩슜 ?뱀씤
+- ALB 80/443 최초 접근 범위 및 공개 기준
+- ASG 및 Launch Template, Monitor IAM 변경 영향
+- GitHub Actions 변수 전달 및 배포 승인 절차
+- ALB 생성 및 운영 비용 승인
 
-ALB Apply, Target Group A/C Healthy 諛?HTTPS ?몃? ?묒냽 寃利앹? 2026??11??26???꾨즺?덉뒿?덈떎. 理쒖떊 寃곌낵??8?덉쓣 李멸퀬?⑸땲??
+ALB Apply, Target Group A/C Healthy 및 HTTPS 외부 접속 검증은 2026년 11월 26일 완료했습니다. 최신 결과는 8절을 참고합니다.
 
-## 8. 11/26 諛고룷 ?꾨즺 ??寃利?湲곕줉
+## 8. 11/26 배포 완료 후 검증 기록
 
-??1~7?덉? 諛고룷 ??寃???대젰?대ŉ, ?꾩옱 ?곹깭?????덉쓣 湲곗??쇰줈 ?⑸땲??
+위 1~7절은 배포 전 검토 이력이며, 현재 상태는 이 절을 기준으로 합니다.
 
-### ?ㅼ젣 諛고룷 寃곌낵
+### 실제 배포 결과
 
-湲곗〈 main??ALB 諛?Route 53 Terraform 由ъ냼?ㅻ? ?ъ슜?섏뿬 濡쒖뺄 ???Plan???곸슜?덉뒿?덈떎. 諛고룷 寃곌낵:
+기존 main의 ALB 및 Route 53 Terraform 리소스를 사용하여 로컬 저장 Plan을 적용했습니다. 배포 결과:
 
 ```text
 Apply complete! Resources: 11 added, 5 changed, 0 destroyed.
 ```
 
-- ALB, Target Group, HTTP/HTTPS Listener, A Alias, 蹂댁븞洹몃９ 洹쒖튃 諛?諛고룷 媛???앹꽦 ?꾨즺.
-- Worker A/C ASG??Target Group ?곌껐, Launch Template ?낅뜲?댄듃, Monitor IAM Policy ?낅뜲?댄듃 ?꾨즺.
-- ALB ?앹꽦 ??2遺?32珥? Route 53 Alias ?앹꽦 ??32珥?(Terraform 異쒕젰 湲곗?).
-- ALB???명꽣???곌껐?뺤씠硫?80/443 ?묎렐 踰붿쐞??湲곗〈 ?꾩껜 怨듦컻 ?뺤콉 洹몃?濡쒖엯?덈떎. 蹂댁븞 ?대떦?먯쓽 怨듦컻 踰붿쐞 ?ш??좉? ?꾩슂?⑸땲??
+- ALB, Target Group, HTTP/HTTPS Listener, A Alias, 보안그룹 규칙 및 배포 가드 생성 완료.
+- Worker A/C ASG의 Target Group 연결, Launch Template 업데이트, Monitor IAM Policy 업데이트 완료.
+- ALB 생성 약 2분 32초, Route 53 Alias 생성 약 32초 (Terraform 출력 기준).
+- ALB는 인터넷 연결형이며 80/443 접근 범위는 기존 전체 공개 정책 그대로입니다. 보안 담당자의 공개 범위 재검토가 필요합니다.
 
-### ?ㅼ젣 ?묒냽 諛?蹂댁븞 寃利?
+### 실제 접속 및 보안 검증
 
-11/26 20:26 KST寃??몃? ?묒냽 ?뚯뒪??湲곗?:
+11/26 20:26 KST경 외부 접속 테스트 기준:
 
-| 寃??| 寃곌낵 |
+| 검사 | 결과 |
 |---|---|
 | Worker A / C Target Group, HTTP 30080 | 2/2 healthy |
-| HTTP ?꾨찓???붿껌 | 301, HTTPS 443?쇰줈 ?대룞 |
+| HTTP 도메인 요청 | 301, HTTPS 443으로 이동 |
 | HTTPS /health | 200, {"status":"ok"} |
-| ?몃? 釉뚮씪?곗? ???섏씠吏 | ?뺤긽 ?쒖떆 |
-| HSTS / CSP ?묐떟 ?ㅻ뜑 | 議댁옱 ?뺤씤 |
+| 외부 브라우저 웹 페이지 | 정상 표시 |
+| HSTS / CSP 응답 헤더 | 존재 확인 |
 
-釉뚮씪?곗? 諛?curl?먯꽌 ?ㅼ젣 ?꾨찓???묒냽???뺤씤?덉뒿?덈떎. TLS ?몄쬆??寃利앹쓣 ?앸왂?섎뒗 ?듭뀡? ?ъ슜?섏? ?딆븯?듬땲?? ?대뒗 ???쒕퉬??媛?⑹꽦 寃利앹씠硫?DB ?쎄린/?곌린, ?ъ슜???몄쬆 ?깃났, ?μ븷 ?꾪솚???낆쬆?섎뒗 寃껋? ?꾨떃?덈떎.
+브라우저 및 curl에서 실제 도메인 접속을 확인했습니다. TLS 인증서 검증을 생략하는 옵션은 사용하지 않았습니다. 이는 웹 서비스 가용성 검증이며 DB 읽기/쓰기, 사용자 인증 성공, 장애 전환을 입증하는 것은 아닙니다.
 
-### ?섏씠釉뚮━???곌껐 ?뺤콉 ?곴뎄 諛섏쁺 諛?蹂듦뎄
+### 하이브리드 연결 정책 영구 반영 및 복구
 
-- [GitOps #9](https://github.com/ktcloud-durian/cicd-platform-gitops/pull/9): AWS Web Egress??A/B API TCP 4000 ?덉슜, DNS 諛?湲곕낯 李⑤떒 ?좎?. main 蹂묓빀 ?뺤씤.
-- [ACL #16](https://github.com/ktcloud-durian/tailscale-acl/pull/16): A/B Core API 蹂꾩묶 諛?B 寃쎈줈 ?먮룞 ?뱀씤 異붽?. ?곸슜 ??Master??A/B 寃쎈줈媛 湲곕낯 NIC濡??뚯븘媛 API Timeout 諛쒖깮.
-- [ACL #17](https://github.com/ktcloud-durian/tailscale-acl/pull/17): Master/Worker ??A/B Core API TCP 4000 ?덉슜 諛?Master ?덉슜 ?뚯뒪??異붽?. DB/SSH 李⑤떒 ?뺤콉 ?좎?. main ?먮룞 ACL ?곸슜 ?깃났.
-- AWS Master A/C?먯꽌 A/B 紐⑹쟻吏 紐⑤몢 tailscale0, table 52 寃쎈줈 蹂듦뎄 諛?媛??대윭?ㅽ꽣 Web Pod??A/B /health 200 ?뺤씤.
-- ?몄쬆 ?녿뒗 ?대? API ?붿껌 401? 湲곗〈 A/B ?묒そ 寃利앷낵 蹂듦뎄 ??C ?대윭?ㅽ꽣??A/B ?ш?利앹씠 ?깃났?덉뒿?덈떎. 蹂듦뎄 ??A??401 寃곌낵???묒냽 ?몃뱶媛 紐낆떆??濡쒓렇濡?異붽? ?뺤씤 沅뚯옣.
-- C ?대윭?ㅽ꽣 ?ㅼ젣 NetworkPolicy??A/B 二쇱냼 紐⑤몢 議댁옱. A/C Argo CD Sync ?곹깭 諛??꾩껜 Pod蹂?寃利앹? 蹂꾨룄 ?뺤씤 ???
+- [GitOps #9](https://github.com/ktcloud-durian/cicd-platform-gitops/pull/9): AWS Web Egress에 A/B API TCP 4000 허용, DNS 및 기본 차단 유지. main 병합 확인.
+- [ACL #16](https://github.com/ktcloud-durian/tailscale-acl/pull/16): A/B Core API 별칭 및 B 경로 자동 승인 추가. 적용 후 Master의 A/B 경로가 기본 NIC로 돌아가 API Timeout 발생.
+- [ACL #17](https://github.com/ktcloud-durian/tailscale-acl/pull/17): Master/Worker → A/B Core API TCP 4000 허용 및 Master 허용 테스트 추가. DB/SSH 차단 정책 유지. main 자동 ACL 적용 성공.
+- AWS Master A/C에서 A/B 목적지 모두 tailscale0, table 52 경로 복구 및 각 클러스터 Web Pod의 A/B /health 200 확인.
+- 인증 없는 내부 API 요청 401은 기존 A/B 양쪽 검증과 복구 후 C 클러스터의 A/B 재검증이 성공했습니다. 복구 후 A의 401 결과는 접속 노드가 명시된 로그로 추가 확인 권장.
+- C 클러스터 실제 NetworkPolicy에 A/B 주소 모두 존재. A/C Argo CD Sync 상태 및 전체 Pod별 검증은 별도 확인 대상.
 
-### 諛고룷 ?ㅼ젙 ?쇱튂 (?대쾲 PR??Workflow 蹂寃?
+### 배포 설정 일치 (이번 PR의 Workflow 변경)
 
-`.github/workflows/terraform.yml`??怨듯넻 env???꾨옒 3媛?Terraform 蹂???꾨떖??異붽??⑸땲?? 湲곗〈 OIDC, ?뱀씤 寃뚯씠?? 蹂댁븞 寃??諛?Apply 議곌굔? ?좎??⑸땲??
+`.github/workflows/terraform.yml`의 공통 env에 아래 3개 Terraform 변수 전달을 추가합니다. 기존 OIDC, 승인 게이트, 보안 검사 및 Apply 조건은 유지합니다.
 
-| Actions Repository Variable / Secret | 諛고룷 ?좎????꾩슂??媛?|
+| Actions Repository Variable / Secret | 배포 유지에 필요한 값 |
 |---|---|
-| TF_APPLY_ENABLED | false ?좎? |
-| TF_VAR_AWS_ALB_ENABLED | true (? ?뱀씤 ?? |
-| TF_VAR_AWS_ALB_CERTIFICATE_ARN (Repository Secret) | ?쒖슱 由ъ쟾??諛쒓툒 ?꾨즺 ACM ?몄쬆??ARN |
+| TF_APPLY_ENABLED | false 유지 |
+| TF_VAR_AWS_ALB_ENABLED | true (팀 승인 후) |
+| TF_VAR_AWS_ALB_CERTIFICATE_ARN (Repository Secret) | 서울 리전의 발급 완료 ACM 인증서 ARN |
 | TF_VAR_AWS_WEB_DOMAIN_NAME | durian-bank.xyz |
-| TF_VAR_AWS_WEB_ROUTE53_ZONE_ID | 湲곗〈 Public Hosted Zone ID |
+| TF_VAR_AWS_WEB_ROUTE53_ZONE_ID | 기존 Public Hosted Zone ID |
 
-?ㅼ젣 蹂?섍컪? ?대쾲 PR??蹂寃쏀븯吏 ?딆뒿?덈떎. 留덉?留??뺤씤 ?뱀떆 ALB ?쒖꽦??蹂?섎뒗 false?닿퀬 ACM/Route53 蹂?섍? ?놁뿀?듬땲?? ?꾩옱 媛믪? 愿由ъ옄媛 ?ы솗?명빐???⑸땲?? ALB媛 ?대? State??議댁옱?섎?濡?false ?ㅼ젙?쇰줈 CI Plan???섑뻾?섎㈃ ALB 愿????젣媛 怨꾪쉷?????덉뒿?덈떎. Apply 湲덉? ?곹깭?먯꽌 ?怨?蹂???쇱튂 ?묒뾽??吏꾪뻾?섍퀬 PR Plan???ъ떎?됲븯???섎룄?섏? ?딆? ??젣/援먯껜媛 ?녿뒗吏 ?뺤씤?댁빞 ?⑸땲?? 濡쒖뺄 terraform.tfvars?먮룄 媛숈? ?ㅼ젙???덉쟾?섍쾶 ?좎??섍퀬 鍮꾨?媛? 怨꾩젙 ?앸퀎?먭? ?ы븿???꾩껜 異쒕젰 諛??곹깭 ?뚯씪? ??μ냼??而ㅻ컠?섏? ?딆뒿?덈떎.
+실제 변수값은 이번 PR이 변경하지 않습니다. 마지막 확인 당시 ALB 활성화 변수는 false이고 ACM/Route53 변수가 없었습니다. 현재 값은 관리자가 재확인해야 합니다. ALB가 이미 State에 존재하므로 false 설정으로 CI Plan을 수행하면 ALB 관련 삭제가 계획될 수 있습니다. Apply 금지 상태에서 팀과 변수 일치 작업을 진행하고 PR Plan을 재실행하여 의도하지 않은 삭제/교체가 없는지 확인해야 합니다. 로컬 terraform.tfvars에도 같은 설정을 안전하게 유지하고 비밀값, 계정 식별자가 포함된 전체 출력 및 상태 파일은 저장소에 커밋하지 않습니다.
 
-### PR #30 由щ럭 諛섏쁺 (11/26)
+### PR #30 리뷰 반영 (11/26)
 
-- 理쒖큹 CI Plan: `0 to add, 4 to change, 11 to destroy`. ?ㅼ젣 Apply/Destroy???ㅽ뻾?섏? ?딆븯?듬땲??
-- 理쒖큹 Plan 濡쒓렇?먯꽌 ACM ARN ?섍꼍蹂??媛믪씠 鍮꾩뼱 ?덉뼱 ?ㅼ젣 ARN ?몄텧? ?뺤씤?섏? ?딆븯?듬땲?? ?섍꼍蹂??媛??먯껜媛 濡쒓렇???쒖떆?섎뒗 援ъ“?대?濡?怨꾩젙 ID 留덉뒪???먯튃???곕씪 ACM ARN? Repository Secret?쇰줈 蹂寃쏀뻽?듬땲??
-- ?꾨찓??諛?Hosted Zone? Repository Variables, ACM ARN? Repository Secret?쇰줈 ?깅줉???붾㈃???뺤씤?덉뒿?덈떎. Secret ?ㅼ젣 媛믪? ?붾㈃?먯꽌 ?뺤씤?????놁쑝誘濡?理쒖쥌 Plan?먯꽌 寃利앺빀?덈떎.
-- Workflow???몄쬆??李몄“瑜?`secrets.TF_VAR_AWS_ALB_CERTIFICATE_ARN`?쇰줈 蹂寃쏀뻽?듬땲?? ?숈씪 ??μ냼 PR 湲곗??대ŉ fork PR?먮뒗 Secret???꾨떖?섏? ?딆뒿?덈떎.
-- ?먮룞 Apply??false ?좎?. ALB ?쒖꽦?붾뒗 CI/CD ?대떦?먯? ?묒쓽 ??蹂寃쏀븯怨?理쒖떊 Plan?먯꽌 0 to destroy 諛??섎㉧吏 蹂寃??댁슜???뺤씤?댁빞 ?⑸땲??
-- ALB 80/443 ?꾩껜 怨듦컻??EX ?덉쇅 ???諛?Trivy 寃??踰붿쐞?????蹂댁븞 ?대떦??寃?좊? ?붿껌?⑸땲?? 濡쒖뺄 Apply ?댁뿭? ? ?ы썑 怨듭쑀媛 ?꾩슂?⑸땲??
+- 최초 CI Plan: `0 to add, 4 to change, 11 to destroy`. 실제 Apply/Destroy는 실행하지 않았습니다.
+- 최초 Plan 로그에서 ACM ARN 환경변수 값이 비어 있어 실제 ARN 노출은 확인되지 않았습니다. 환경변수 값 자체가 로그에 표시되는 구조이므로 계정 ID 마스킹 원칙에 따라 ACM ARN은 Repository Secret으로 변경했습니다.
+- 도메인 및 Hosted Zone은 Repository Variables, ACM ARN은 Repository Secret으로 등록된 화면을 확인했습니다. Secret 실제 값은 화면에서 확인할 수 없으므로 최종 Plan에서 검증합니다.
+- Workflow의 인증서 참조를 `secrets.TF_VAR_AWS_ALB_CERTIFICATE_ARN`으로 변경했습니다. 동일 저장소 PR 기준이며 fork PR에는 Secret이 전달되지 않습니다.
+- 자동 Apply는 false 유지. ALB 활성화는 CI/CD 담당자와 협의 후 변경하고 최신 Plan에서 기존 공개 SG 규칙 외 의도하지 않은 삭제가 없는지 확인해야 합니다.
+- ALB 80/443 전체 공개는 EX 예외 대장 및 Trivy 검사 범위에 대해 보안 담당자 검토를 요청합니다. 로컬 Apply 내역은 팀 사후 공유가 필요합니다.
 
-### ?꾩냽 寃??諛?寃利?
+### 후속 검토 및 검증
 
-- 蹂댁븞 ?대떦: ALB 怨듦컻 踰붿쐞 ?쒗븳, 援먯쑁??紐⑥쓽 ???紐낆떆, ?곕え ?먭꺽利앸챸 諛??ㅼ젣 媛쒖씤?뺣낫 誘몄궗???뺤씤. ?몄쬆/DB 寃利????몃? ?몄텧 理쒖냼??沅뚯옣.
-- CI/CD ?대떦: Actions 蹂???쇱튂, CI Plan ?ш?利? ?먮룞 Apply 鍮꾪솢?깊솕 諛?production ?뱀씤 ?덉감 ?뺤씤.
-- ?⑦봽???대떦: Core API ??MariaDB ?곕룞, ?곕え 濡쒓렇??議고쉶/?댁껜, AWS ??DB 吏곸젒 ?묎렐 李⑤떒 ?ㅼ륫.
-- ?댁쁺: Target Group ?μ븷 ?꾪솚, OpenStack A/B Failover/Failback, ALB? 怨듭씤 IPv4 鍮꾩슜 諛?醫낅즺 諛⑹떇 寃?? EC2 以묒?濡?ALB 鍮꾩슜??以묐떒?섏????딆뒿?덈떎.
+- 보안 담당: ALB 공개 범위 제한, 교육용 모의 은행 명시, 데모 자격증명 및 실제 개인정보 미사용 확인. 인증/DB 검증 전 외부 노출 최소화 권장.
+- CI/CD 담당: Actions 변수 일치, CI Plan 재검증, 자동 Apply 비활성화 및 production 승인 절차 확인.
+- 온프렘 담당: Core API → MariaDB 연동, 데모 로그인/조회/이체, AWS → DB 직접 접근 차단 실측.
+- 운영: Target Group 장애 전환, OpenStack A/B Failover/Failback, ALB와 공인 IPv4 비용 및 종료 방식 검토. EC2 중지로 ALB 비용이 중단되지는 않습니다.
 
-?대쾲 PR? 11/27 蹂댁븞 由щ럭???곕씪 Workflow, ALB ?묎렐 ?쒖뼱, Lambda ?덉쇅 諛?臾몄꽌瑜??섏젙?⑸땲?? ?ㅼ젣 Actions ?ㅼ젙 蹂寃쎄낵 AWS Apply??? ?뱀씤 ?댄썑 吏꾪뻾?⑸땲??
+이번 PR은 11/27 보안 리뷰에 따라 Workflow, ALB 접근 제어, Lambda 예외 및 문서를 수정합니다. 실제 Actions 설정 변경과 AWS Apply는 팀 승인 이후 진행합니다.
 
-## 9. 11/27 蹂댁븞 寃??諛섏쁺 (PR #30)
+## 9. 11/27 보안 검토 반영 (PR #30)
 
-### EX-01 蹂댁븞 ?덉쇅
+### EX-01 보안 예외
 
-| ??ぉ | ?댁슜 |
+| 항목 | 내용 |
 |---|---|
-| 湲곗? | NET-02, LOG-06 |
-| ???| ALB Security Group TCP 80/443 |
-| 怨듦컻 踰붿쐞 | ?쒖뿰 湲곌컙 0.0.0.0/0 |
-| 80踰?紐⑹쟻 | HTTPS 由щ떎?대젆??|
-| 443踰?紐⑹쟻 | ?몃? 怨좉컼 ???쒕퉬??|
-| 寃利?湲곌컙 | ?뱀씤?????IPv4 /32留??덉슜 |
-| Trivy ?덉쇅 | AVD-AWS-0107, 由ъ냼???⑥쐞 |
-| Lambda ?덉쇅 | ALB SG??TCP 80/443留??덉슜 |
-| 留뚮즺 諛??ш???| 2026-12-04 |
-| ?뱀씤 | ?≪쑄吏 寃???湲?|
+| 기준 | NET-02, LOG-06 |
+| 대상 | Internet-facing ALB 및 ALB Security Group TCP 80/443 |
+| 공개 범위 | 시연 기간 0.0.0.0/0 |
+| 80번 목적 | HTTPS 리다이렉트 |
+| 443번 목적 | 외부 고객 웹 서비스 |
+| 검증 기간 | 승인된 팀원 IPv4 /32만 허용 |
+| Trivy 예외 | AVD-AWS-0107, AVD-AWS-0053 (리소스 단위) |
+| Lambda 예외 | 전체 공개 모드에서만 ALB SG의 TCP 80/443 허용 |
+| 만료 및 재검토 | 2026-12-04 |
+| 승인 | 송윤지 검토 대기 |
 
-### 蹂댁븞 媛쒖꽑
+### 보안 개선
 
-- Trivy 湲곕낯, ALB 怨듦컻, ALB ?쒗븳 紐⑤뱶 寃??- EX-01 諛?留뚮즺??二쇱꽍 異붽?
-- ALB 怨듦컻 紐⑤뱶???곕Ⅸ Lambda ?먮룞 李⑤떒 ?덉쇅 ?곕룞
-- 寃利?湲곌컙 ? IP ?쒗븳
-- ?쒖뿰 ???쒗븳 紐⑤뱶 蹂듦뎄 諛??덉쇅 ?ш???- ACM ARN 諛????IP 紐⑸줉? Actions Secret?쇰줈 愿由?- Terraform 諛?Drift Workflow??蹂???꾨떖 ?쇱튂
-- Worker NodePort 30080? ALB SG?먯꽌留??묎렐 ?덉슜
-- ?먮룞 Apply 鍮꾪솢?깊솕 ?좎?
-- Lambda ?덉쇅 ?곸슜 諛?SG 怨듦컻 ?꾪솚 ?쒖꽌 寃利??꾩슂
+- Trivy 기본, ALB 공개, ALB 제한 모드 검사
+- EX-01 및 만료일 주석 추가
+- ALB 공개 모드에 따른 Lambda 자동 차단 예외 연동
+- 검증 기간 팀 IP 제한
+- 시연 후 제한 모드 복구 및 예외 재검토
+- ACM ARN 및 팀원 IP 목록은 Actions Secret으로 관리
+- Terraform 및 Drift Workflow의 변수 전달 일치
+- Worker NodePort 30080은 ALB SG에서만 접근 허용
+- 자동 Apply 비활성화 유지
+- Lambda 예외 적용 및 SG 공개 전환 순서 검증 필요
 
-### 理쒖떊 寃利?寃곌낵
+### 최신 검증 결과
 
-- AWS A/C?먯꽌 ?⑦봽??A/B Core API 寃쎌쑀 DB 議고쉶 4/4 ?깃났
-- MariaDB TCP 3306 吏곸젒 ?곌껐 ?ㅽ뙣 4/4 ?뺤씤
-- DB ?묎렐 ?ㅽ뙣 ?먯씤蹂?蹂댁븞 ?뺤콉 寃利앹? 異붽? ?꾩슂
+- AWS A/C에서 온프렘 A/B Core API 경유 DB 조회 4/4 성공
+- MariaDB TCP 3306 직접 연결 실패 4/4 확인
+- DB 접근 실패 원인별 보안 정책 검증은 추가 필요
 - Argo CD A/C Synced
-- ?덊럹?댁? 濡쒓렇??HTTP 500 諛?Core API Timeout 議곗궗 以?- ?댁껜 諛?DB 蹂듭젣? ?먮룞 ?μ븷 ?꾪솚 誘멸?利?
-蹂?蹂寃쎌? 肄붾뱶 ?묒꽦 諛?寃???④퀎?대ŉ ?ㅼ젣 AWS Apply???섑뻾?섏? ?딆븯??
+- 홈페이지 로그인 HTTP 500 및 Core API Timeout 조사 중
+- 이체 및 DB 복제와 자동 장애 전환 미검증
+
+본 변경은 코드 작성 및 검토 단계이며 실제 AWS Apply는 수행하지 않았다.
 
 ### 11/27 추가 CI 보안 검토
 
-- Security Scan #72: Gitleaks, TFLint, 기본 Trivy 통과.
-- ALB 활성화 검사에서 AWS-0053(HIGH) 탐지.
+- Security Scan #72: ALB 활성화 검사에서 AWS-0053(HIGH) 탐지.
 - Internet-facing ALB 리소스에 AVD-AWS-0053 예외 주석 추가.
 - EX-01 예외 대장 개정안 작성, 보안 담당 승인 대기.
+- Security Scan #73: Gitleaks, TFLint, Trivy 기본/공개/제한 모드 모두 통과.
 - 팀원 6명 제한 모드 Plan: 12 add / 0 change / 2 destroy.
 - 삭제 대상은 기존 공개 TCP 80/443 SG 규칙으로 한정.
-- Terraform Apply 및 추가 CI 결과 확인은 아직 미완료.
+- Actions 변수 일치 및 최종 CI Plan 확인 필요.
+- 실제 AWS Apply 미진행.
